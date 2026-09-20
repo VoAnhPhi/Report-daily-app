@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ClsModule } from 'nestjs-cls';
 import { ActivityLogModule } from 'src/activity-logs/activity-log.module';
@@ -9,6 +8,7 @@ import databaseConfig from 'src/common/configs/database.config';
 import redisConfig from 'src/common/configs/redis.config';
 import resendConfig from 'src/common/configs/resend.config';
 import { CacheHelperModule } from 'src/common/cache/cache.module';
+import { CacheConfigService } from 'src/common/services/cache-config.service';
 import { BusinessFormsModule } from 'src/business-forms/business-forms.module';
 import { DailyReportsModule } from 'src/daily-reports/daily-reports.module';
 import { FeatureAuthModule } from 'src/auth/feature-auth.module';
@@ -34,7 +34,7 @@ function redisConnection(config: ConfigService) {
       isGlobal: true,
       load: [appConfig, databaseConfig, redisConfig, resendConfig],
     }),
-    CacheModule.register({ isGlobal: true }),
+    CacheConfigService.register(),
     ClsModule.forRoot({
       global: true,
       middleware: { mount: false },

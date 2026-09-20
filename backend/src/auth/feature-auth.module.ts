@@ -1,5 +1,4 @@
 import { Module, Global } from '@nestjs/common';
-import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -19,7 +18,6 @@ import { AllConfigType } from 'src/common/configs/types/index.type';
 @Global()
 @Module({
   imports: [
-    CacheModule.register({ isGlobal: true }),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

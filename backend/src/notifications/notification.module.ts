@@ -6,6 +6,8 @@ import { NotificationHelperService } from './notification-helper.service';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationQueueController } from './notification-queue.controller';
 import { PrismaService } from '../common/services/prisma.service';
+import { BackgroundJobService } from '../common/services/background-job.service';
+import { LoopRegistryService } from '../common/services/loop-registry.service';
 
 @Module({
   imports: [CacheHelperModule],
@@ -15,6 +17,8 @@ import { PrismaService } from '../common/services/prisma.service';
     NotificationHelperService,
     NotificationQueueService,
     PrismaService,
+    BackgroundJobService,
+    LoopRegistryService,
   ],
   exports: [
     NotificationService,
