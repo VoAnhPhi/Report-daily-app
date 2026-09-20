@@ -1,0 +1,17 @@
+// acta-prisma-contracts/prisma/schema/trending-search-config.prisma
+// NEW — Phase 35 D-09. Stores admin-curated "Đang được tìm nhiều" chip list.
+// "Gần đây" chips = client localStorage ONLY — no backend model for those.
+// GLOBAL storefront config — NO businessId (not tenant-scoped, D-09).
+
+model TrendingSearchConfig {
+  id          String   @id @default(cuid())
+  query       String   @unique // the search term the chip fires (e.g. "ca phe")
+  displayText String // chip label shown to customer (may differ from query)
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("trending_search_configs")
+}

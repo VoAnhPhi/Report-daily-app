@@ -1,0 +1,38 @@
+/// Sổ dấu "đã gửi" của cron cảnh báo reset ví — idempotent + audit cho 5 mốc
+/// (30/14/7/3/0 ngày) × mỗi người × mỗi tháng × mỗi kênh (email/sms).
+///
+/// Bảng CHỈ ghi các lần gửi THÀNH CÔNG: `filterUnsent` loại người đã có dòng, nên
+/// người gửi lỗi (Resend trả error / SMS lỗi) KHÔNG có dòng và tự được thử lại ở
+/// lần quét sau — đó chính là cơ chế phục hồi khi cron lỡ nhịp. Thất bại đi vào log.
+///
+/// KHÔNG có quan hệ/FK tới `User` — cố ý, theo tiền lệ bảng nhật ký ở repo này
+/// (BugReportAuditLog, affiliate_ops_audit_logs cũng không FK): giữ được dấu vết
+/// kể cả khi tài khoản bị xoá, và tránh phải sửa file shared-base `user.prisma`.
+/// `userId` là cột chuỗi thường, có index gián tiếp qua unique key.
+model WalletResetWarningDispatch {
+  id String @id @default(cuid())
+
+  /// users.id của người đã nhận cảnh báo (cột thường, không FK).
+  userId String
+
+  /// "YYYY-MM" (giờ VN) của mốc reset = ngày 1 lúc 12:00. Khoá dedup theo tháng.
+  resetMonth String
+
+  /// Mốc cảnh báo tính bằng số ngày còn lại: 30 | 14 | 7 | 3 | 0 (0 = ngày reset).
+  milestone Int
+
+  /// Kênh gửi: "email" | "sms". Cho phép mốc 7 ngày ghi hai dòng (email + sms) độc lập.
+  channel String
+
+  /// Số ngày cửa sổ đã dùng để tính cohort ở lần gửi này (bằng milestone, riêng 0 → 3).
+  windowDays Int
+
+  /// Mã tham chiếu nhà cung cấp (Resend message id / YourSales msgId) — để đối soát.
+  providerRef String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, resetMonth, milestone, channel], map: "wrwd_user_month_milestone_channel_key")
+  @@index([resetMonth, milestone, channel], map: "wrwd_month_milestone_channel_idx")
+  @@map("wallet_reset_warning_dispatches")
+}

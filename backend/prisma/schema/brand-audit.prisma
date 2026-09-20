@@ -1,0 +1,48 @@
+// Audit log cho BusinessBrand — ghi lại mọi thay đổi trên thương hiệu.
+// Append-only: không có updatedAt. Hàng không bị xóa tự động (D-03).
+// Undo window 30 ngày được kiểm soát ở tầng endpoint (Phase 34).
+
+enum BrandAuditAction {
+  RENAME
+  CREATE
+  UPDATE_LOGO
+  UPDATE_META
+  TRANSFER_BUSINESS
+  UPDATE_FEATURED_CATEGORIES
+  DELETE
+}
+
+model BrandAuditLog {
+  id String @id @default(cuid())
+
+  // FK đến BusinessBrand bị tác động
+  businessBrandId String
+  businessBrand   BusinessBrand @relation(fields: [businessBrandId], references: [id])
+
+  // Người thực hiện hành động
+  actorUserId String
+  actor       User   @relation("BrandAuditActor", fields: [actorUserId], references: [id])
+
+  // Loại hành động
+  action BrandAuditAction
+
+  // Snapshot trước / sau khi thay đổi (full row — D-03)
+  beforeJson Json?
+  afterJson  Json?
+
+  // Timestamp tạo bản ghi (không có updatedAt — append-only)
+  createdAt DateTime @default(now())
+
+  // Thông tin hoàn tác (soft-tombstone; hàng vẫn tồn tại)
+  undoneAt       DateTime?
+  undoneByUserId String?
+  undoneBy       User?     @relation("BrandAuditUndoneBy", fields: [undoneByUserId], references: [id])
+  undoNote       String?
+
+  // Phase 31 — nhóm các hàng từ một lần sắp xếp hàng loạt để hoàn tác nguyên tử
+  batchId String? // cuid; groups rows from one batch reorder for atomic undo
+
+  @@index([businessBrandId, createdAt(sort: Desc)])
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@map("brand_audit_logs")
+}

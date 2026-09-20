@@ -1,0 +1,30 @@
+erDiagram
+  DAILY_REPORT {
+    string id PK
+  }
+  DAILY_REPORT_REVISION {
+    string id PK
+    string reportId FK
+    int revisionNumber
+    datetime reviewDeadlineAt
+  }
+  DAILY_REPORT_REVIEW {
+    string id PK
+    string revisionId FK, UK
+    string decision
+  }
+  DAILY_REPORT_CARRY_OVER {
+    string id PK
+    string fromReportId FK
+    string reviewId FK
+    string confirmedByReviewId FK
+    string taskId
+    date toReportDate
+    string chainId
+  }
+
+  DAILY_REPORT ||..o{ DAILY_REPORT_REVISION : "có các lần nộp"
+  DAILY_REPORT_REVISION ||..o| DAILY_REPORT_REVIEW : "tối đa một kết luận"
+  DAILY_REPORT ||..o{ DAILY_REPORT_CARRY_OVER : "có việc chuyển tiếp"
+  DAILY_REPORT_REVIEW o|..o{ DAILY_REPORT_CARRY_OVER : "người duyệt tạo"
+  DAILY_REPORT_REVIEW o|..o{ DAILY_REPORT_CARRY_OVER : "xác nhận dòng đã có"

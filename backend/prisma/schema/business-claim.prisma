@@ -1,0 +1,45 @@
+// Loại yêu cầu nhận quyền sở hữu
+enum ClaimKind {
+  existing_business // Nhận quyền cho doanh nghiệp đã có trên nền tảng
+  new_ownership // Chủ mới (mua lại / tiếp quản)
+  transfer // Chuyển nhượng nội bộ
+}
+
+// Trạng thái yêu cầu
+enum ClaimStatus {
+  pending // Đang chờ xét duyệt
+  approved // Đã chấp thuận
+  rejected // Bị từ chối
+  withdrawn // Người dùng rút lại
+}
+
+// Yêu cầu nhận quyền sở hữu doanh nghiệp
+model BusinessClaim {
+  id String @id @default(cuid())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  claimantUserId String
+  claimant       User   @relation("UserClaims", fields: [claimantUserId], references: [id], onDelete: Cascade)
+
+  claimKind ClaimKind
+
+  // Tài liệu hỗ trợ (Uploadthing keys)
+  supportingDocs String[] // Mảng file keys từ Uploadthing
+
+  // Xử lý
+  status     ClaimStatus @default(pending)
+  reviewerId String?
+  reviewer   User?       @relation("UserClaimsReviewed", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewedAt DateTime?
+  reviewNote String?     @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId, status])
+  @@index([claimantUserId])
+  @@index([status])
+  @@map("business_claims")
+}

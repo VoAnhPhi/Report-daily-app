@@ -1,0 +1,619 @@
+enum CommissionStatus {
+  pending
+  calculated
+  paid
+  cancelled
+  settled // P81 D-81-D inversion — early-settled at reset; terminal, ≠calculated (reset never touches), ≠cancelled (counts as totalEarned)
+}
+
+enum CommissionLevel {
+  F0
+  F1
+  F2
+  F3
+  F4
+  F5
+  F6 // Thù lao tư vấn
+  F7 // Thù lao kho vận
+  F8 // Chia thêm cộng đồng ở sản phẩm lẻ kho CTV (người nhận = quỹ cộng đồng, như F0)
+}
+
+enum AffiliateWithdrawalStatus {
+  pending
+  approved
+  rejected
+  completed
+}
+
+enum WithdrawalType {
+  user_request // Người dùng tự yêu cầu rút tiền
+  community_fund // Phân chia quỹ cộng đồng định kỳ (ngày 5 hàng tháng)
+  system_adjustment // Điều chỉnh hệ thống bởi admin
+}
+
+enum AffiliateVoucherCreationStatus {
+  created
+  active
+  expired
+  cancelled
+}
+
+enum ProofSource {
+  admin
+  system
+}
+
+enum PersonalCommissionStatus {
+  pending_create
+  created
+  denied
+  pending_edit
+  pending_delete
+  deleted
+  withdrawn
+}
+
+enum PersonalCommissionAction {
+  create_submitted
+  create_approved
+  create_rejected
+  edit_submitted
+  edit_approved
+  edit_rejected
+  delete_submitted
+  delete_approved
+  delete_rejected
+  system_created
+}
+
+model AffiliateCommission {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  orderDetailId String?
+  orderDetail   OrderDetail? @relation(fields: [orderDetailId], references: [id], onDelete: SetNull)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  beneficiaryId String
+  beneficiary   User   @relation("UserAffiliateCommissions", fields: [beneficiaryId], references: [id], onDelete: Cascade)
+
+  commissionLevel  CommissionLevel
+  commissionRate   Decimal         @db.Decimal(5, 4)
+  baseAmount       Decimal         @db.Decimal(15, 2)
+  quantity         Int
+  commissionAmount Decimal         @db.Decimal(15, 2)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  status CommissionStatus @default(pending)
+
+  paidAt     DateTime?
+  paidBy     String?
+  paidByUser User?     @relation("UserPaidCommissions", fields: [paidBy], references: [id])
+
+  notes String?
+
+  settledAt        DateTime?
+  settledSourceRef String? // P81 — carries the reset sourceRef for clawback lookup (81-09) + reset idempotency reasoning
+
+  summaryAsF2 CommissionSummary? @relation("F2Commission")
+  summaryAsF1 CommissionSummary? @relation("F1Commission")
+  summaryAsF0 CommissionSummary? @relation("F0Commission")
+  summaryAsF3 CommissionSummary? @relation("F3Commission")
+  summaryAsF4 CommissionSummary? @relation("F4Commission")
+  summaryAsF5 CommissionSummary? @relation("F5Commission")
+  summaryAsF6 CommissionSummary? @relation("F6Commission")
+
+  calculatedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([orderDetailId])
+  @@index([productId])
+  @@index([beneficiaryId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([commissionLevel])
+  @@index([calculatedAt])
+  @@index([paidAt])
+  @@index([settledSourceRef])
+  @@map("affiliate_commissions")
+}
+
+model AffiliateCommissionLog {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  totalCommissionAmount Decimal @db.Decimal(15, 2)
+  commissionCount       Int
+  calculationStatus     String
+
+  processedAt     DateTime @default(now())
+  processedBy     String?
+  processedByUser User?    @relation("UserProcessedCommissions", fields: [processedBy], references: [id])
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([processedAt])
+  @@index([calculationStatus])
+  @@map("affiliate_commission_logs")
+}
+
+model CommissionSummary {
+  id String @id @default(cuid())
+
+  orderDetailId String      @unique
+  orderDetail   OrderDetail @relation(fields: [orderDetailId], references: [id])
+
+  totalAmount     Decimal @db.Decimal(15, 2)
+  commissionPaid  Decimal @db.Decimal(15, 2)
+  platformCut     Decimal @db.Decimal(15, 2)
+  remainingAmount Decimal @db.Decimal(15, 2)
+
+  f2CommissionId String?              @unique
+  f2Commission   AffiliateCommission? @relation("F2Commission", fields: [f2CommissionId], references: [id])
+
+  f1CommissionId String?              @unique
+  f1Commission   AffiliateCommission? @relation("F1Commission", fields: [f1CommissionId], references: [id])
+
+  f0CommissionId String?              @unique
+  f0Commission   AffiliateCommission? @relation("F0Commission", fields: [f0CommissionId], references: [id])
+
+  f3CommissionId String?              @unique
+  f3Commission   AffiliateCommission? @relation("F3Commission", fields: [f3CommissionId], references: [id])
+
+  f4CommissionId String?              @unique
+  f4Commission   AffiliateCommission? @relation("F4Commission", fields: [f4CommissionId], references: [id])
+
+  f5CommissionId String?              @unique
+  f5Commission   AffiliateCommission? @relation("F5Commission", fields: [f5CommissionId], references: [id])
+
+  f6CommissionId String?              @unique
+  f6Commission   AffiliateCommission? @relation("F6Commission", fields: [f6CommissionId], references: [id])
+
+  categoryGroupRate Decimal  @db.Decimal(5, 4)
+  calculatedAt      DateTime @default(now())
+  notes             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderDetailId])
+  @@index([calculatedAt])
+  @@index([categoryGroupRate])
+  @@map("commission_summaries")
+}
+
+model AffiliateWallet {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation("UserAffiliateWallet", fields: [userId], references: [id], onDelete: Cascade)
+
+  totalEarned      Decimal @default(0) @db.Decimal(15, 2)
+  totalWithdrawn   Decimal @default(0) @db.Decimal(15, 2)
+  availableBalance Decimal @default(0) @db.Decimal(15, 2)
+  pendingBalance   Decimal @default(0) @db.Decimal(15, 2)
+  frozenBalance    Decimal @default(0) @db.Decimal(15, 2)
+
+  // Số tiền đã phân phối cho recognized users (dành cho ví quỹ cộng đồng)
+  // Khi syncUserWallet chạy: availableBalance = calculated_commissions - distributedAmount
+  distributedAmount Decimal @default(0) @db.Decimal(15, 2)
+
+  // Số tiền nhận được từ quỹ cộng đồng (dành cho recognized users)
+  receivedFromFund Decimal @default(0) @db.Decimal(15, 2)
+
+  // Phase 80 (QL Thu Nhập v1.6) — salary/advance cache columns (D-01: Decimal(15,2), match existing money cols)
+  salaryCreditedTotal Decimal @default(0) @db.Decimal(15, 2) // P81 CREDIT-rail recompute term (WALLET-01)
+  advanceDebtBalance  Decimal @default(0) @db.Decimal(15, 2) // cache of AdvanceDebtLedger running balance (WALLET-05)
+
+  // Phase 88 (CTV Mở Rộng / CAMKET-01, D-88-E) — commitment-policy cache columns, kept SEPARATE from elder columns above
+  commitmentFloorCreditedTotal Decimal @default(0) @db.Decimal(15, 2) // commitment floor-top-up rail cache, recompute alongside salaryCreditedTotal (Phase 91)
+  commitmentAdvanceDebtBalance Decimal @default(0) @db.Decimal(15, 2) // commitment advance-debt cache, kept SEPARATE from elder advanceDebtBalance
+
+  // Cấp phát thu nhập (2026-07-23, spec cap-phat-thu-nhap D3) — sổ dư nợ RIÊNG cho chính sách hai_loc,
+  // cùng khuôn cache 2 cột trên (display-only, KHÔNG vào công thức ví); nguồn thật là AdvanceDebtLedger
+  // policyType=hai_loc.
+  haiLocAdvanceDebtBalance Decimal @default(0) @db.Decimal(15, 2)
+
+  settledCommissionTotal Decimal @default(0) @db.Decimal(15, 2) // P81 D-81-D — early-settled commission survive-recompute rail (decision 3: distinct from salaryCreditedTotal)
+  lastResetSourceRef     String? // P81 R1 — wallet's CURRENT settlement baseline (sourceRef of most recent reset); 81-08 SETS it at each reset (REPLACE), 81-09 baseline-aware clawback compares each cancelled commission's settledSourceRef against it
+
+  totalCommissions     Int     @default(0)
+  totalVouchersCreated Int     @default(0)
+  totalVoucherValue    Decimal @default(0) @db.Decimal(15, 2)
+
+  isActive Boolean @default(true)
+  isFrozen Boolean @default(false)
+
+  lastCommissionAt     DateTime?
+  lastWithdrawalAt     DateTime?
+  lastVoucherCreatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  withdrawals       AffiliateWithdrawal[]
+  voucherCreations  AffiliateVoucherCreation[]
+  fundDistributions CommunityFundDistribution[] @relation("SourceWalletDistributions")
+
+  @@index([userId])
+  @@index([isActive])
+  @@index([isFrozen])
+  @@map("affiliate_wallets")
+}
+
+model AffiliateWithdrawal {
+  id String @id @default(cuid())
+
+  walletId String
+  wallet   AffiliateWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  amount           Decimal @db.Decimal(15, 2)
+  withdrawalMethod String
+
+  // Phase 80 D-02 — idempotency key for reset carriers (e.g. voucher:<id>:zero-commission, couple:<withdrawalId>:zero-commission)
+  sourceRef String?
+
+  paymentMethodId String?
+  paymentMethod   UserPaymentMethod? @relation("WithdrawalPaymentMethod", fields: [paymentMethodId], references: [id], onDelete: SetNull)
+
+  status AffiliateWithdrawalStatus @default(pending)
+
+  // Loại withdrawal: user tự rút hay hệ thống phân chia quỹ
+  withdrawalType WithdrawalType @default(user_request)
+
+  // Reference đến đợt phân chia quỹ (nếu là community_fund)
+  distributionBatchId String?
+  distributionBatch   CommunityFundDistribution? @relation(fields: [distributionBatchId], references: [id], onDelete: SetNull)
+
+  processedAt     DateTime?
+  processedBy     String?
+  processedByUser User?     @relation("UserProcessedWithdrawals", fields: [processedBy], references: [id])
+
+  notes           String?
+  rejectionReason String?
+  imageString     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([walletId])
+  @@index([status])
+  @@index([withdrawalMethod])
+  @@index([withdrawalType])
+  @@index([paymentMethodId])
+  @@index([distributionBatchId])
+  @@index([createdAt])
+  // Phase 80 D-02: a partial UNIQUE index `uq_affiliate_withdrawal_source_ref` ON ("sourceRef") WHERE "sourceRef" IS NOT NULL
+  // is maintained via the raw migration (Plan 03) — Prisma 6 cannot express WHERE-filtered uniques. Do NOT add a Prisma-7 partial-index attribute.
+  @@map("affiliate_withdrawals")
+}
+
+model AffiliateVoucherCreation {
+  id String @id @default(cuid())
+
+  walletId String
+  wallet   AffiliateWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  voucherTemplateId String
+  voucherTemplate   VoucherTemplate @relation("VoucherTemplateAffiliateCreations", fields: [voucherTemplateId], references: [id])
+
+  commissionUsed Decimal @db.Decimal(15, 2)
+  voucherValue   Decimal @db.Decimal(15, 2)
+
+  voucherType String
+  voucherName String
+  voucherCode String
+
+  status AffiliateVoucherCreationStatus @default(created)
+
+  totalDistributed   Int     @default(0)
+  totalUsed          Int     @default(0)
+  totalDiscountGiven Decimal @default(0) @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([walletId])
+  @@index([voucherTemplateId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("affiliate_voucher_creations")
+}
+
+// ==================== COMMUNITY FUND DISTRIBUTION ====================
+
+enum CommunityFundDistributionStatus {
+  pending // Đang chờ xử lý
+  processing // Đang phân chia
+  completed // Hoàn thành
+  failed // Thất bại
+  cancelled // Đã hủy
+}
+
+model CommunityFundDistribution {
+  id String @id @default(cuid())
+
+  // Thông tin đợt phân chia
+  batchCode   String  @unique // VD: "CFD-202512" (tháng 12/2025)
+  description String? // Mô tả đợt phân chia
+
+  // Nguồn quỹ (ví của ADMIN_RESERVE_FUND_USER_ID)
+  sourceWalletId String
+  sourceWallet   AffiliateWallet @relation("SourceWalletDistributions", fields: [sourceWalletId], references: [id])
+
+  // Số tiền phân chia
+  totalAmount     Decimal @db.Decimal(15, 2) // Tổng số tiền phân chia
+  amountPerUser   Decimal @db.Decimal(15, 2) // Số tiền mỗi user nhận được
+  recipientCount  Int // Số lượng recognized users nhận tiền
+  successfulCount Int     @default(0) // Số lượng phân chia thành công
+  failedCount     Int     @default(0) // Số lượng phân chia thất bại
+
+  // Trạng thái
+  status CommunityFundDistributionStatus @default(pending)
+
+  // Thời gian
+  scheduledAt DateTime? // Thời gian dự kiến chạy (ngày 5 hàng tháng)
+  startedAt   DateTime? // Thời gian bắt đầu xử lý
+  completedAt DateTime? // Thời gian hoàn thành
+
+  // Người thực hiện (có thể là system hoặc admin)
+  executedBy     String?
+  executedByUser User?   @relation("CommunityFundExecutedBy", fields: [executedBy], references: [id])
+
+  // Metadata
+  notes    String?
+  metadata Json? // Thông tin bổ sung (danh sách user, lỗi, etc.)
+
+  // Relations
+  withdrawals AffiliateWithdrawal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([batchCode])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([sourceWalletId])
+  @@index([createdAt])
+  @@map("community_fund_distributions")
+}
+
+model PersonalCommission {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation("UserPersonalCommissions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Pricing - Giá cả
+  price                     Decimal?     @db.Decimal(10, 2) // Giá bán trước thuế
+  basePrice                 Decimal?     @db.Decimal(10, 2) // Giá chưa giảm - Giá niêm yết
+  factoryPrice              Decimal?     @db.Decimal(10, 2) // Giá nhà sản xuất
+  commission532Fee          Float?       @default(0) // % chiết khấu 5-3-2 (0-100, chia hết cho 5)
+  businessTeamCommission    Float?       @default(0)
+  defaultPersonalCommission Float?       @default(0)
+  type                      ProductType? // Loại sản phẩm (optional cho admin distribution)
+  flag                      ProductFlag  @default(regular) // Flag sản phẩm
+  commissionAmount          Decimal?     @db.Decimal(15, 2) // Số tiền hoa hồng cá nhân được hưởng
+
+  // Tax information - Thông tin thuế
+  taxType       TaxType? // Loại thuế
+  taxRate       String? // Tỷ lệ thuế
+  taxRateDirect Float? // Tỷ lệ thuế trực tiếp
+  taxName       String? // Tên thuế
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  orderDetailId String?
+  orderDetail   OrderDetail? @relation(fields: [orderDetailId], references: [id], onDelete: SetNull)
+
+  createdBy         String?
+  createdByUser     User?   @relation("UserCreatedPersonalCommissions", fields: [createdBy], references: [id])
+  lastUpdatedBy     String?
+  lastUpdatedByUser User?   @relation("UserUpdatedPersonalCommissions", fields: [lastUpdatedBy], references: [id])
+
+  // 🔥 proof
+  proofUrl    String?
+  proofType   String? // optional
+  proofSource ProofSource @default(admin) // admin | system
+
+  notes String?
+
+  // ============ NEW FIELDS (Phase 1 — Admin approval + Withdrawal) ============
+  status    PersonalCommissionStatus @default(pending_create)
+  deletedAt DateTime?
+
+  // Pending edit snapshot — applied on approve, discarded on reject
+  pendingEditData Json?
+
+  // Audit log (reverse relation)
+  auditLogs PersonalCommissionAuditLog[]
+  // ============ END NEW FIELDS ============
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orderDetailId, userId])
+  @@index([userId])
+  @@index([createdBy])
+  @@index([productId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("personal_commissions")
+}
+
+model PersonalCommissionAuditLog {
+  id String @id @default(cuid())
+
+  personalCommissionId String
+  personalCommission   PersonalCommission @relation(fields: [personalCommissionId], references: [id], onDelete: Cascade)
+
+  action  PersonalCommissionAction
+  // Nullable: cron auto-creation has no human actor (null = system)
+  actorId String?
+  actor   User?                    @relation("PersonalCommissionAuditActors", fields: [actorId], references: [id])
+
+  previousData Json?
+  newData      Json?
+  reason       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([personalCommissionId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("personal_commission_audit_logs")
+}
+
+// ==================== TEAM COMMISSION ====================
+
+enum TeamCommissionStatus {
+  pending_create
+  created
+  denied
+  pending_delete
+  deleted
+  distributed
+}
+
+enum TeamCommissionAction {
+  system_created
+  admin_created
+  admin_denied
+  admin_deleted
+  system_distributed
+  admin_approved
+}
+
+model TeamCommission {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation("UserTeamCommissions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Pricing snapshot at cron time
+  price                  Decimal? @db.Decimal(10, 2)
+  taxRateDirect          Float?   @default(0)
+  commission532Fee       Float?   @default(0)
+  businessTeamCommission Float?   @default(0)
+
+  contributionAmount Decimal @db.Decimal(15, 2) // post-floor-split, in VND
+
+  productId String?
+  product   Product? @relation("ProductTeamCommissions", fields: [productId], references: [id], onDelete: SetNull)
+
+  orderDetailId String?
+  // Partial unique index for teamId IS NULL added via raw SQL in migration:
+  // CREATE UNIQUE INDEX team_commission_order_detail_null_team_unique ON team_commissions ("orderDetailId") WHERE "teamId" IS NULL;
+  orderDetail   OrderDetail? @relation("OrderDetailTeamCommission", fields: [orderDetailId], references: [id], onDelete: SetNull)
+
+  teamId String?
+  team   Team?   @relation("TeamTeamCommissions", fields: [teamId], references: [id], onDelete: SetNull)
+
+  distributionId String?
+  distribution   BusinessTeamRevenueDistribution? @relation("DistributionTeamCommissions", fields: [distributionId], references: [id], onDelete: SetNull)
+
+  distributedAt DateTime?
+
+  proofSource ProofSource @default(system)
+
+  status    TeamCommissionStatus @default(pending_create)
+  deletedAt DateTime?
+
+  createdBy     String?
+  createdByUser User?   @relation("TeamCommissionCreatedBy", fields: [createdBy], references: [id])
+
+  notes String?
+
+  auditLogs TeamCommissionAuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // @@unique([orderDetailId, teamId, userId]) covers non-NULL teamId pairs per member; NULL teamId case covered by partial index above (includes userId)
+  @@unique([orderDetailId, teamId, userId])
+  @@index([userId, status])
+  @@index([teamId, status, createdAt])
+  @@index([distributionId])
+  @@map("team_commissions")
+}
+
+model TeamCommissionAuditLog {
+  id String @id @default(cuid())
+
+  teamCommissionId String
+  teamCommission   TeamCommission @relation(fields: [teamCommissionId], references: [id], onDelete: Cascade)
+
+  action  TeamCommissionAction
+  // Nullable: cron auto-creation has no human actor (null = system)
+  actorId String?
+  actor   User?                @relation("TeamCommissionAuditActors", fields: [actorId], references: [id])
+
+  previousData Json?
+  newData      Json?
+  reason       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([teamCommissionId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("team_commission_audit_logs")
+}
+
+// ==================== SHAREHOLDER-REFERRAL REWARD ====================
+// Thù lao giới thiệu cổ đông: khi một downline lên level ghi nhận `sharing`
+// ("Cổ đông lan tỏa"), upline trực tiếp (F1) nhận 200k/level, upline cấp 2 (F2)
+// nhận 100k/level. Mỗi (beneficiary, source, level) chỉ trả một lần (forward-only,
+// tối đa 3 level). Bảng này VỪA là ledger lịch sử VỪA là nguồn tiền: tổng amount
+// theo beneficiary được cộng vào availableBalance trong calculateUserWalletBalance
+// (cùng khuôn với businessTeamRevenueShare/teamRevenueTotal).
+model ShareholderReferralReward {
+  id String @id @default(cuid())
+
+  // Người NHẬN thù lao (upline F1/F2 của downline lên cổ đông)
+  beneficiaryId String
+  beneficiary   User   @relation("BeneficiaryShareholderReferralRewards", fields: [beneficiaryId], references: [id], onDelete: Cascade)
+
+  // Downline đã lên level sharing (nguồn phát sinh thù lao)
+  //
+  // REWARD-LEDGER-RESTRICT (chủ dự án chốt 13/09/2026) — CỐ Ý **KHÔNG** Cascade.
+  // Dòng này là SỔ TIỀN ĐÃ TRẢ cho upline, và `calculateUserWalletBalance` cộng
+  // Σ(amount) theo beneficiary vào `availableBalance`. Cascade ở đây nghĩa là
+  // xoá một downline thì upline MẤT TIỀN đã được trả — im lặng, ở lượt recompute
+  // kế tiếp, không dấu vết. `Restrict` biến cú mất tiền đó thành một cú TỪ CHỐI
+  // XOÁ ầm ĩ. Quan hệ `beneficiary` phía trên giữ nguyên `Cascade`: xoá chính
+  // người nhận thì sổ của người ấy đi theo là đúng.
+  sourceUserId String
+  sourceUser   User   @relation("SourceShareholderReferralRewards", fields: [sourceUserId], references: [id], onDelete: Restrict)
+
+  // Level sharing mà downline vừa đạt (1..3) và bậc quan hệ upline (1 = F1, 2 = F2)
+  level Int
+  depth Int
+
+  amount Decimal @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+
+  // Idempotent + forward-only: mỗi level của mỗi downline chỉ trả cho beneficiary một lần.
+  @@unique([beneficiaryId, sourceUserId, level])
+  @@index([beneficiaryId, createdAt])
+  @@index([sourceUserId])
+  @@map("shareholder_referral_rewards")
+}

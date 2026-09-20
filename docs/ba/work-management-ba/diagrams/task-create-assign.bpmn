@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Task" targetNamespace="https://acta.vn/model/task">
+ <bpmn:process id="Process_TaskCreate" name="Tạo và giao công việc" isExecutable="false">
+  <bpmn:laneSet id="LaneSet_Task">
+   <bpmn:lane id="Lane_Creator" name="Người tạo việc"><bpmn:flowNodeRef>Start_Need</bpmn:flowNodeRef><bpmn:flowNodeRef>Task_Enter</bpmn:flowNodeRef><bpmn:flowNodeRef>Task_Correct</bpmn:flowNodeRef></bpmn:lane>
+   <bpmn:lane id="Lane_System" name="Hệ thống"><bpmn:flowNodeRef>Task_Validate</bpmn:flowNodeRef><bpmn:flowNodeRef>Gateway_Valid</bpmn:flowNodeRef><bpmn:flowNodeRef>Task_Create</bpmn:flowNodeRef><bpmn:flowNodeRef>Gateway_Assigned</bpmn:flowNodeRef><bpmn:flowNodeRef>End_Unassigned</bpmn:flowNodeRef><bpmn:flowNodeRef>Task_Invite</bpmn:flowNodeRef><bpmn:flowNodeRef>Task_Record</bpmn:flowNodeRef><bpmn:flowNodeRef>End_Assigned</bpmn:flowNodeRef></bpmn:lane>
+   <bpmn:lane id="Lane_Assignee" name="Người liên quan"><bpmn:flowNodeRef>Task_Accept</bpmn:flowNodeRef></bpmn:lane>
+  </bpmn:laneSet>
+  <bpmn:startEvent id="Start_Need" name="Có nhu cầu giao việc">
+
+   <bpmn:outgoing>F1</bpmn:outgoing>
+  </bpmn:startEvent>
+  <bpmn:userTask id="Task_Enter" name="Nhập thông tin và người liên quan">
+   <bpmn:incoming>F1</bpmn:incoming>
+   <bpmn:incoming>F6</bpmn:incoming>
+   <bpmn:outgoing>F2</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:serviceTask id="Task_Validate" name="Kiểm tra dữ liệu và quyền">
+   <bpmn:incoming>F2</bpmn:incoming>
+   <bpmn:outgoing>F3</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:exclusiveGateway id="Gateway_Valid" name="Hợp lệ?">
+   <bpmn:incoming>F3</bpmn:incoming>
+   <bpmn:outgoing>F4</bpmn:outgoing>
+   <bpmn:outgoing>F5</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:userTask id="Task_Correct" name="Xem lỗi và sửa">
+   <bpmn:incoming>F5</bpmn:incoming>
+   <bpmn:outgoing>F6</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:serviceTask id="Task_Create" name="Tạo công việc">
+   <bpmn:incoming>F4</bpmn:incoming>
+   <bpmn:outgoing>F7</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:exclusiveGateway id="Gateway_Assigned" name="Có người liên quan?">
+   <bpmn:incoming>F7</bpmn:incoming>
+   <bpmn:outgoing>F8</bpmn:outgoing>
+   <bpmn:outgoing>F9</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:endEvent id="End_Unassigned" name="Đã tạo việc">
+   <bpmn:incoming>F8</bpmn:incoming>
+
+  </bpmn:endEvent>
+  <bpmn:serviceTask id="Task_Invite" name="Gửi lời mời tham gia">
+   <bpmn:incoming>F9</bpmn:incoming>
+   <bpmn:outgoing>F10</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:userTask id="Task_Accept" name="Xem và nhận tham gia">
+   <bpmn:incoming>F10</bpmn:incoming>
+   <bpmn:outgoing>F11</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:serviceTask id="Task_Record" name="Ghi nhận đã tham gia">
+   <bpmn:incoming>F11</bpmn:incoming>
+   <bpmn:outgoing>F12</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:endEvent id="End_Assigned" name="Đã nhận tham gia">
+   <bpmn:incoming>F12</bpmn:incoming>
+
+  </bpmn:endEvent>
+  <bpmn:sequenceFlow id="F1" sourceRef="Start_Need" targetRef="Task_Enter">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F2" sourceRef="Task_Enter" targetRef="Task_Validate">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F3" sourceRef="Task_Validate" targetRef="Gateway_Valid">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F4" sourceRef="Gateway_Valid" targetRef="Task_Create" name="Có">
+   <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">valid</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F5" sourceRef="Gateway_Valid" targetRef="Task_Correct" name="Không">
+   <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">invalid</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F6" sourceRef="Task_Correct" targetRef="Task_Enter">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F7" sourceRef="Task_Create" targetRef="Gateway_Assigned">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F8" sourceRef="Gateway_Assigned" targetRef="End_Unassigned" name="Không">
+   <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">none</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F9" sourceRef="Gateway_Assigned" targetRef="Task_Invite" name="Có">
+   <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">some</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F10" sourceRef="Task_Invite" targetRef="Task_Accept">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F11" sourceRef="Task_Accept" targetRef="Task_Record">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="F12" sourceRef="Task_Record" targetRef="End_Assigned">
+  </bpmn:sequenceFlow>
+ </bpmn:process>
+ <bpmn:collaboration id="Collaboration_Task"><bpmn:participant id="Participant_ACTA_Task" name="ACTA Social" processRef="Process_TaskCreate" /></bpmn:collaboration>
+ <bpmndi:BPMNDiagram id="Diagram_Task"><bpmndi:BPMNPlane id="Plane_Task" bpmnElement="Collaboration_Task">
+  <bpmndi:BPMNShape id="Shape_Participant_ACTA_Task" bpmnElement="Participant_ACTA_Task" isHorizontal="true"><dc:Bounds x="40" y="70" width="1870" height="510" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Lane_Creator" bpmnElement="Lane_Creator" isHorizontal="true"><dc:Bounds x="70" y="70" width="1840" height="170" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Lane_System" bpmnElement="Lane_System" isHorizontal="true"><dc:Bounds x="70" y="240" width="1840" height="170" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Lane_Assignee" bpmnElement="Lane_Assignee" isHorizontal="true"><dc:Bounds x="70" y="410" width="1840" height="170" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Start_Need" bpmnElement="Start_Need"><dc:Bounds x="120" y="132" width="36" height="36" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Task_Enter" bpmnElement="Task_Enter"><dc:Bounds x="210" y="110" width="170" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Task_Validate" bpmnElement="Task_Validate"><dc:Bounds x="440" y="280" width="150" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Gateway_Valid" bpmnElement="Gateway_Valid"><dc:Bounds x="650" y="295" width="50" height="50" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Task_Correct" bpmnElement="Task_Correct"><dc:Bounds x="650" y="110" width="140" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Task_Create" bpmnElement="Task_Create"><dc:Bounds x="770" y="280" width="150" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Gateway_Assigned" bpmnElement="Gateway_Assigned"><dc:Bounds x="980" y="295" width="50" height="50" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_End_Unassigned" bpmnElement="End_Unassigned"><dc:Bounds x="1060" y="245" width="36" height="36" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Task_Invite" bpmnElement="Task_Invite"><dc:Bounds x="1120" y="280" width="160" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Task_Accept" bpmnElement="Task_Accept"><dc:Bounds x="1350" y="455" width="160" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_Task_Record" bpmnElement="Task_Record"><dc:Bounds x="1570" y="280" width="160" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Shape_End_Assigned" bpmnElement="End_Assigned"><dc:Bounds x="1800" y="302" width="36" height="36" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNEdge id="Edge_F1" bpmnElement="F1"><di:waypoint x="156" y="150" /><di:waypoint x="210" y="150" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F2" bpmnElement="F2"><di:waypoint x="380" y="150" /><di:waypoint x="410" y="150" /><di:waypoint x="410" y="320" /><di:waypoint x="440" y="320" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F3" bpmnElement="F3"><di:waypoint x="590" y="320" /><di:waypoint x="650" y="320" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F4" bpmnElement="F4"><di:waypoint x="700" y="320" /><di:waypoint x="770" y="320" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F5" bpmnElement="F5"><di:waypoint x="675" y="295" /><di:waypoint x="675" y="190" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F6" bpmnElement="F6"><di:waypoint x="650" y="150" /><di:waypoint x="610" y="150" /><di:waypoint x="610" y="220" /><di:waypoint x="185" y="220" /><di:waypoint x="185" y="150" /><di:waypoint x="210" y="150" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F7" bpmnElement="F7"><di:waypoint x="920" y="320" /><di:waypoint x="980" y="320" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F8" bpmnElement="F8"><di:waypoint x="1005" y="295" /><di:waypoint x="1005" y="263" /><di:waypoint x="1060" y="263" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F9" bpmnElement="F9"><di:waypoint x="1030" y="320" /><di:waypoint x="1120" y="320" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F10" bpmnElement="F10"><di:waypoint x="1280" y="320" /><di:waypoint x="1320" y="320" /><di:waypoint x="1320" y="495" /><di:waypoint x="1350" y="495" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F11" bpmnElement="F11"><di:waypoint x="1510" y="495" /><di:waypoint x="1540" y="495" /><di:waypoint x="1540" y="320" /><di:waypoint x="1570" y="320" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Edge_F12" bpmnElement="F12"><di:waypoint x="1730" y="320" /><di:waypoint x="1800" y="320" /></bpmndi:BPMNEdge>
+ </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>

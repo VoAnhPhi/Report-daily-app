@@ -1,0 +1,461 @@
+enum ReactionType {
+  LIKE
+  LOVE
+  HAHA
+  WOW
+  SAD
+  ANGRY
+}
+
+enum PostStatus {
+  normal // Normal post - default status
+  active // Active post - 10 reactions + 2 comments from different users
+  pro // Pro post - active + 5 reactions from illuminators
+}
+
+enum VerificationStatus {
+  none // Active user posts — no verification needed
+  pending // Non-active user posts awaiting verification
+  approved // Verified by illuminators/luminaries/admins
+  rejected // Rejected by verifiers
+}
+
+// Social features models
+model Post {
+  id String @id @default(uuid())
+
+  content       String?    @db.Text
+  isPublished   Boolean    @default(false)
+  sourceEventId String? // Event ID for idempotency (avatar posts)
+  postType      String? // Post type (e.g., "avatar_update")
+  visibility    String?    @default("public") // Post visibility (public, friends, private)
+  isPinned      Boolean?   @default(false) // Whether post is pinned
+  note          String?
+  status        PostStatus @default(normal) // Post status based on engagement
+
+  // Verification for non-active user posts
+  verificationStatus VerificationStatus @default(none)
+  verificationScore  Int                @default(0)
+  hasBeenApproved    Boolean            @default(false)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  publishedAt DateTime?
+
+  // Relations
+  userId String
+  user   User   @relation("UserPosts", fields: [userId], references: [id], onDelete: Cascade)
+
+  imageUrls String[] @default([]) // URLs of images associated with the post
+  videoUrls String[] @default([]) // URLs of videos associated with the post
+
+  locationId String?
+  location   PostLocation?
+
+  /// Điểm cầu mà bài viết này đăng lên. `null` = bài social thường.
+  ///
+  /// ⚠ `onDelete: SetNull` chứ KHÔNG phải `Cascade`. Xoá một điểm cầu không được
+  /// kéo theo bài viết của người dùng — bài mất dấu điểm cầu thì vẫn là một bài
+  /// social hợp lệ, còn xoá mất nó là xoá nội dung của người khác vì một thao
+  /// tác quản trị họ không liên quan.
+  ///
+  /// ⚠ KHÔNG dùng lại `PostLocation` cho việc này: bảng đó chỉ chứa địa chỉ dạng
+  /// CHỮ, không lọc được theo kho và không đổi theo khi kho đổi tên.
+  warehouseId String?
+  warehouse   Warehouse? @relation("WarehousePosts", fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  /// ╔════════════════════════════════════════════════════════════════════════╗
+  /// ║  BÀI ƯU ĐÃI — `postType = 'offer'`                                     ║
+  /// ╚════════════════════════════════════════════════════════════════════════╝
+  ///
+  /// Ưu đãi của một địa điểm KHÔNG có model riêng, và cũng KHÔNG có trường dữ
+  /// liệu riêng: nó là một BÀI VIẾT BÌNH THƯỜNG mang cờ `postType = 'offer'`.
+  /// Chốt của người vận hành 06/09/2026 — "tin ưu đãi chỉ như tin bình thường
+  /// có nhãn ưu đãi thôi". Tiêu đề và mức giảm viết trong `content`; riêng KHOẢNG
+  /// THỜI GIAN HOẠT ĐỘNG có cột thật — xem `offerStartAt` / `offerEndAt` dưới.
+  ///
+  /// ⚠ ĐỪNG nhầm với `VoucherTemplate` (bảng `voucher_templates`, phần mở rộng
+  /// DIADIEM). Đó là ưu đãi do QUẢN TRỊ VIÊN phát hành, có mã voucher, hạn mức,
+  /// hàng đợi duyệt `VoucherReview`. Bài ưu đãi ở đây là thứ CHỦ ĐỊA ĐIỂM tự
+  /// đăng, hiện ngay, không phát mã. Hai thứ cùng hiện trong tab "Ưu đãi" của
+  /// acta-solutions nhưng không thay thế nhau.
+  ///
+  /// ⚠ Cột dưới đây NULLABLE và không có backfill: bài social cũ vẫn hợp lệ y
+  /// nguyên. Đây là bảng dùng chung với acta-social, nên mọi thứ thêm vào đây
+  /// phải vô hại với đường đọc đang chạy.
+
+  // ⚠ Cột trỏ sang "địa điểm kinh doanh" (+ quan hệ và 2 chỉ số của nó) ĐÃ GỠ
+  // ngày 07/09/2026. Bài ưu đãi nay neo DUY NHẤT vào `warehouseId` ngay trên,
+  // phân biệt bằng `postType = 'offer'`.
+  //
+  // Đây là nhóm DROP, KHÔNG phải đổi tên: `posts.warehouseId` đã tồn tại từ
+  // migration `20260903000000_post_warehouse_and_warehouse_level`, nên đổi tên cột
+  // cũ thành `warehouseId` sẽ đụng ngay một cột cùng tên. Đo trước khi gỡ: 0 hàng
+  // có giá trị khác NULL.
+
+  /// Khoảng thời gian tin ưu đãi có hiệu lực. CHỈ có nghĩa khi `postType = 'offer'`;
+  /// bài social thường KHÔNG BAO GIỜ được ghi hai cột này.
+  ///
+  /// `offerStartAt` NULL = tin đăng trước 07/09/2026, coi như đã hiệu lực từ đầu.
+  /// Tin đăng từ nay luôn có mốc bắt đầu (giao diện tự điền thời điểm đăng).
+  ///
+  /// `offerEndAt` NULL = KHÔNG hết hạn. Đây là lựa chọn thật của người đăng, không
+  /// phải "chưa khai" — nên mọi vị từ lọc phải coi NULL là CÒN hiệu lực, đừng đổi
+  /// thành `gte: now` trần vì như thế loại sạch tin không hạn.
+  ///
+  /// ⚠ Vị từ "đang hoạt động" khai MỘT lần ở `src/posts/offer-post-window.helper.ts`.
+  /// Đừng chép lại ở nơi đọc thứ hai — đúng lỗi mà `activeOfferFilter` /
+  /// `loUuDaiConHieuLuc` (hai bản sao của cùng một bộ lọc voucher) đang mắc.
+  offerStartAt DateTime?
+  offerEndAt   DateTime?
+
+  feelingId String? // e.g., "happy"
+  feeling   PostFeeling? @relation(fields: [feelingId], references: [id], onDelete: SetNull)
+
+  activityId String?
+  activity   PostActivity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+
+  // 👇 Người được gắn thẻ. Model nối TƯỜNG MINH (`PostTag`) chứ không phải m2m
+  // ngầm: người được gắn thẻ cần quyết định riêng trên từng lượt gắn thẻ — ẩn
+  // bài khỏi trang cá nhân của mình (đảo được) và gỡ thẻ hẳn (không đảo). M2m
+  // ngầm chỉ có hai cột khoá ngoại nên không chứa nổi trạng thái đó.
+  postTags PostTag[]
+
+  // 👇 Pinned products relation
+  pinnedProducts Product[] @relation("PostPinnedProducts")
+
+  reactionCount Int @default(0)
+  commentCount  Int @default(0)
+
+  reactions Reaction[] @relation("PostReactions")
+  comments  Comment[]  @relation("PostComments")
+  muxData   MuxData[]  @relation("PostMuxData")
+
+  // Moment Reviews (review system for posts treated as moments)
+  momentReviews MomentReview[] @relation("PostMomentReviews")
+
+  // Saved posts relation
+  savedPosts SavedPost[] @relation("PostSavedPosts")
+
+  // Notification relations
+  notifications Notification[]
+
+  // Phase 2: Quote, thread, and engagement fields
+  quotedPostId String?
+  threadId     String?
+  threadOrder  Int?
+  viewCount    Int          @default(0)
+  repostCount  Int          @default(0)
+  quotedPost   Post?        @relation("QuotedPost", fields: [quotedPostId], references: [id])
+  quotedBy     Post[]       @relation("QuotedPost")
+  poll         Poll?
+  linkPreview  LinkPreview?
+  reposts      Repost[]     @relation("PostReposts")
+
+  @@index([userId])
+  @@index([isPublished])
+  @@index([userId, isPublished])
+  @@index([createdAt])
+  @@index([isPublished, createdAt])
+  @@index([userId, createdAt])
+  // Optimized index for batch statistics queries
+  @@index([userId, isPublished, deletedAt, publishedAt])
+  @@index([isPublished, deletedAt, publishedAt])
+  @@index([userId, publishedAt])
+  @@index([threadId, threadOrder])
+  @@index([quotedPostId])
+  @@index([verificationStatus, isPublished, deletedAt, publishedAt])
+  /// ⚠ Chỉ số thứ hai khớp ĐÚNG khuôn chỉ số feed đang có ở trên
+  /// (`[isPublished, deletedAt, publishedAt]`). Thiếu nó thì mỗi lần mở tab Tin
+  /// của một điểm cầu là một lượt quét toàn bảng `posts`.
+  @@index([warehouseId])
+  @@index([warehouseId, isPublished, deletedAt, publishedAt])
+  /// Chỉ số của bộ lọc "nơi này ĐANG có ưu đãi" trên bản đồ: hỏi `EXISTS` một
+  /// bài `postType='offer'` còn trong khoảng thời gian hoạt động. Thiếu nó thì
+  /// mỗi lần bật chip lọc là một lượt quét toàn bảng `posts` nhân với số điểm
+  /// cầu trong khung nhìn.
+  ///
+  /// ⚠ Cặp chỉ số theo `businessLocationId` đã bỏ cùng đợt gộp — cột đó không
+  /// còn trên bảng này.
+  @@index([warehouseId, postType, offerEndAt])
+  @@map("posts")
+}
+
+/// Một lượt gắn thẻ người dùng vào bài viết.
+///
+/// Tường minh thay vì m2m ngầm vì người ĐƯỢC gắn thẻ có quyền quyết định riêng
+/// trên lượt gắn thẻ của mình, và mỗi quyết định cần một mốc thời gian:
+///   - ẩn bài khỏi trang cá nhân của mình (đảo được), thẻ vẫn hiện trên bài
+///   - gỡ thẻ hẳn (không đảo), tên biến khỏi "cùng với…" ở mọi nơi
+///
+/// ⚠ MỌI đường đọc danh sách người được gắn thẻ PHẢI lọc `removedAt: null`.
+/// Bỏ sót một chỗ là thẻ đã gỡ vẫn hiện — đây là lỗi dễ sót nhất của model này.
+model PostTag {
+  id     String @id @default(uuid())
+  postId String
+  userId String
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  /// Khác null = người được gắn thẻ đã ẩn bài khỏi trang cá nhân của mình.
+  /// Thẻ VẪN hiện trên bài với mọi người khác. Đặt lại null là hiện lại.
+  hiddenFromProfileAt DateTime?
+
+  /// Khác null = thẻ đã bị gỡ. Giữ dòng làm bia mộ thay vì xoá cứng, để còn dấu
+  /// vết kiểm toán khi có tranh chấp nội dung.
+  removedAt DateTime?
+
+  @@unique([postId, userId])
+  // Feed trang cá nhân lọc theo đúng ba cột này, theo thứ tự này.
+  @@index([userId, removedAt, hiddenFromProfileAt])
+  @@index([postId, removedAt])
+  @@map("post_tags")
+}
+
+model PostFeeling {
+  id String @id @default(uuid()) // internal ID
+
+  label String // "Hạnh phúc"
+  icon  String // emoji or URL (e.g., "😊" or image URL)
+  posts Post[] // Back relation
+
+  @@unique([label])
+  @@map("post_feelings")
+}
+
+model PostActivityCategory {
+  id String @id @default(uuid())
+
+  icon       String // e.g., "🎉"
+  name       String // e.g., "Đang nghĩ về..."
+  activities PostActivity[]
+
+  @@unique([name])
+  @@map("post_activity_categories")
+}
+
+model PostActivity {
+  id    String @id @default(uuid())
+  label String // e.g., "ý nghĩa của cuộc sống"
+  icon  String // e.g., ☁️ emoji or image
+
+  categoryId String
+  category   PostActivityCategory @relation(fields: [categoryId], references: [id])
+
+  posts Post[] // Posts linked to this activity
+
+  @@unique([label, categoryId])
+  @@map("post_activities")
+}
+
+model PostLocation {
+  id      String @id @default(uuid())
+  address String
+
+  postId String @unique
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("post_locations")
+}
+
+model Reaction {
+  id String @id @default(uuid())
+
+  type ReactionType
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userId String
+  user   User   @relation("UserReactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  postId String
+  post   Post   @relation("PostReactions", fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([userId])
+  @@index([postId, userId])
+  @@index([userId, createdAt])
+  @@map("reactions")
+}
+
+model Comment {
+  id String @id @default(uuid())
+
+  content   String
+  userId    String
+  postId    String
+  parentId  String? // For nested comments
+  likeCount Int     @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  // Relations
+  user      User      @relation("UserComments", fields: [userId], references: [id], onDelete: Cascade)
+
+  post Post @relation("PostComments", fields: [postId], references: [id], onDelete: Cascade)
+
+  parent Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+
+  replies Comment[]     @relation("CommentReplies")
+  likes   CommentLike[] @relation("CommentLikes")
+
+  // Người được nhắc bằng `@` trong nội dung bình luận. Song song với
+  // `Post.taggedUsers`: cùng một danh sách duy nhất cho cả markup trong nội dung
+  // lẫn người chọn tay, hợp lại ở tầng service trước khi ghi.
+  taggedUsers User[] @relation("TaggedComments")
+
+  // Notification relations
+  notifications Notification[]
+
+  @@index([postId])
+  @@index([userId])
+  @@index([parentId])
+  @@index([postId, createdAt])
+  @@index([parentId, createdAt])
+  // Optimize aggregation queries that filter by deletedAt
+  @@index([postId, deletedAt])
+  @@index([deletedAt])
+  @@index([userId, createdAt])
+  @@map("comments")
+}
+
+model CommentLike {
+  id String @id @default(uuid())
+
+  type ReactionType @default(LIKE)
+
+  userId    String
+  commentId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user    User    @relation("UserCommentLikes", fields: [userId], references: [id], onDelete: Cascade)
+  comment Comment @relation("CommentLikes", fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commentId])
+  @@index([userId, createdAt])
+  @@map("comment_likes")
+}
+
+// Saved/Bookmarked posts
+model SavedPost {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserSavedPosts", fields: [userId], references: [id], onDelete: Cascade)
+
+  postId String
+  post   Post   @relation("PostSavedPosts", fields: [postId], references: [id], onDelete: Cascade)
+
+  collectionId String?
+  collection   SavedCollection? @relation(fields: [collectionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, postId])
+  @@map("saved_posts")
+}
+
+model Follower {
+  id String @id @default(uuid())
+
+  followerId String
+  follower   User   @relation("UserFollowersFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+
+  followingId String
+  following   User   @relation("UserFollowersFollowed", fields: [followingId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([followerId, followingId])
+  @@map("followers")
+}
+
+model Repost {
+  id             String   @id @default(uuid())
+  userId         String
+  originalPostId String
+  createdAt      DateTime @default(now())
+  user           User     @relation("UserReposts", fields: [userId], references: [id], onDelete: Cascade)
+  originalPost   Post     @relation("PostReposts", fields: [originalPostId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, originalPostId])
+  @@index([userId])
+  @@index([originalPostId])
+  @@map("reposts")
+}
+
+model Poll {
+  id        String       @id @default(uuid())
+  postId    String       @unique
+  question  String
+  expiresAt DateTime?
+  post      Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  options   PollOption[]
+
+  @@index([postId])
+  @@map("polls")
+}
+
+model PollOption {
+  id     String     @id @default(uuid())
+  pollId String
+  text   String
+  order  Int
+  poll   Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes  PollVote[]
+
+  @@map("poll_options")
+}
+
+model PollVote {
+  id       String     @id @default(uuid())
+  optionId String
+  userId   String
+  option   PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@unique([optionId, userId])
+  @@index([optionId])
+  @@map("poll_votes")
+}
+
+model SavedCollection {
+  id        String      @id @default(uuid())
+  userId    String
+  name      String
+  type      String
+  category  String?
+  createdAt DateTime    @default(now())
+  posts     SavedPost[]
+
+  @@index([userId])
+  @@map("saved_collections")
+}
+
+model LinkPreview {
+  id          String  @id @default(uuid())
+  postId      String  @unique
+  url         String
+  title       String?
+  description String?
+  imageUrl    String?
+  domain      String?
+  post        Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("link_previews")
+}

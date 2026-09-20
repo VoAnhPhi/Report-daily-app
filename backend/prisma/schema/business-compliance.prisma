@@ -1,0 +1,129 @@
+// Loại tài liệu pháp lý
+//
+// ⚠ LOẠI TÀI LIỆU LÀ DỮ LIỆU, KHÔNG PHẢI CỘT. Mỗi file là một dòng
+// `BusinessComplianceDoc` mang `docType`; thêm một loại giấy mới là thêm MỘT
+// giá trị ở đây (`ALTER TYPE … ADD VALUE IF NOT EXISTS`), không phải thêm cột
+// vào `businesses` rồi đi sửa từng đường ghi.
+//
+// Bảy giá trị cuối (thêm 11/09/2026) phủ bộ hồ sơ pháp lý sản phẩm mà đơn đăng
+// ký đối tác (`BusinessForm`) vẫn thu. Ánh xạ ô → loại nằm ở giao diện
+// (`LEGAL_DOC_SLOT_DOC_TYPE` bên acta-admin).
+enum LegalDocType {
+  business_license // Giấy phép / đăng ký kinh doanh
+  tax_certificate // Giấy chứng nhận thuế / MST
+  trademark_cert // Giấy chứng nhận / đăng ký nhãn hiệu
+  operation_permit // Giấy phép hoạt động ngành
+  food_safety_cert // Giấy chứng nhận an toàn thực phẩm
+  other // Loại khác
+  product_declaration // Bản công bố sản phẩm
+  test_report // Phiếu kết quả kiểm nghiệm
+  product_label // Nhãn sản phẩm
+  barcode_registration // Mã số mã vạch
+  base_standard // Tiêu chuẩn cơ sở (TCCS)
+  certificate_of_origin // Chứng nhận nguồn gốc (C/O)
+  gmp_cert // Chứng nhận GMP
+}
+
+// Trạng thái của tài liệu
+enum DocStatus {
+  uploaded // Đã tải lên — chưa xét duyệt
+  pending_review // Đang chờ admin xem xét
+  verified // Đã xác minh
+  rejected // Bị từ chối (thiếu / sai)
+  expired // Hết hạn
+  replaced // Đã thay thế bởi phiên bản mới hơn
+}
+
+// Trạng thái tổng thể hồ sơ tuân thủ
+enum BusinessComplianceStatus {
+  draft // Chưa nộp
+  incomplete // Thiếu tài liệu
+  submitted // Đã nộp đầy đủ
+  under_review // Đang xét duyệt
+  approved // Đã phê duyệt
+  rejected // Bị từ chối
+  suspended // Bị đình chỉ do vi phạm
+}
+
+// Tài liệu pháp lý của doanh nghiệp
+model BusinessComplianceDoc {
+  id String @id @default(cuid())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  docType LegalDocType // Loại tài liệu
+
+  // File (upload qua Uploadthing từ acta-admin / acta-solutions)
+  uploadthingFileKey String // File key từ Uploadthing
+  fileUrl            String // URL công khai
+
+  // Hạn hiệu lực (nullable nếu không có ngày hết hạn)
+  expiresAt DateTime?
+
+  // Xác minh
+  verifiedAt       DateTime?
+  verifiedByUserId String?
+  verifiedBy       User?     @relation("DocVerifier", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
+
+  // Phiên bản
+  versionNumber Int       @default(1) // Tăng khi upload lại
+  status        DocStatus @default(uploaded)
+
+  // Ghi chú của NGƯỜI NỘP (vd "bản sao y", "bản dịch công chứng", "phụ lục 2").
+  // Tách hẳn khỏi `reviewerNote`: một bên là lời người nộp tự khai, một bên là
+  // lời phán của người duyệt — gộp chung một cột thì lượt duyệt ghi đè mất lời
+  // người nộp.
+  submitterNote String? @db.Text
+
+  // Ghi chú của reviewer (admin) — hiển thị cho chủ doanh nghiệp khi yêu cầu chỉnh sửa / từ chối
+  reviewerNote           String? @db.Text // Ghi chú chung của reviewer
+  changesRequestedReason String? @db.Text // Lý do khi admin yêu cầu chủ doanh nghiệp chỉnh sửa tài liệu
+
+  // Dedupe flag cho thông báo sắp hết hạn (cron)
+  expiringNotifiedAt DateTime? // Đánh dấu đã gửi thông báo sắp hết hạn gần nhất
+
+  // Tài liệu thay thế (self-relation)
+  replacedByDocId String? // ID của tài liệu mới hơn
+  replacedByDoc   BusinessComplianceDoc?  @relation("DocReplacement", fields: [replacedByDocId], references: [id])
+  replacedDocs    BusinessComplianceDoc[] @relation("DocReplacement")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId, status])
+  @@index([businessId, docType])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("business_compliance_docs")
+}
+
+// Checklist tuân thủ tổng hợp của doanh nghiệp (1 bản ghi / doanh nghiệp)
+model BusinessComplianceChecklist {
+  id String @id @default(cuid())
+
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  // Trạng thái tổng thể
+  overallStatus BusinessComplianceStatus @default(draft)
+
+  // Danh sách hạng mục (JSON)
+  // VD: [{ key: "business_license", required: true, status: "verified", docId: "..." }]
+  items Json
+
+  completionPercent Int      @default(0) // 0-100
+  lastCheckedAt     DateTime @default(now())
+
+  // Admin ghi chú
+  reviewNote       String? @db.Text
+  reviewedByUserId String?
+  reviewedBy       User?   @relation("ComplianceReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([overallStatus])
+  @@index([completionPercent])
+  @@map("business_compliance_checklists")
+}

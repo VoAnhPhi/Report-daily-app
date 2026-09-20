@@ -1,0 +1,32 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+actor "Thành viên" as Member
+actor "Quản lý nhóm / đội" as Manager
+actor "Người duyệt phụ" as Reviewer
+actor "Người làm thay" as Caregiver
+
+rectangle "ACTA Social — Báo cáo hằng ngày" {
+  usecase "Viết, lưu và nộp báo cáo" as Submit
+  usecase "Xem lịch sử của mình" as History
+  usecase "Yêu cầu hỗ trợ" as Help
+  usecase "Chuyển việc sang ngày sau" as Carry
+  usecase "Xem bảng và tổng hợp nhóm" as Board
+  usecase "Cấu hình báo cáo" as Config
+  usecase "Phân công người duyệt" as Assign
+  usecase "Duyệt báo cáo" as Review
+}
+
+Member -- Submit
+Member -- History
+Member -- Help
+Member -- Carry
+Manager -- Board
+Manager -- Config
+Manager -- Assign
+Manager -- Review
+Reviewer -- Review
+Caregiver -- Submit
+@enduml

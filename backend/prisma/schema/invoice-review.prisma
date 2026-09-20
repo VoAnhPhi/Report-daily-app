@@ -1,0 +1,76 @@
+enum InvoiceReviewType {
+  create
+  update
+  delete
+}
+
+enum InvoiceReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model InvoiceReview {
+  id String @id @default(cuid())
+
+  type   InvoiceReviewType
+  status InvoiceReviewStatus @default(pending)
+
+  // Snapshot of the proposed invoice data (full JSON for create/update, null for delete)
+  proposedData Json? // Full invoice payload
+  previousData Json? // Snapshot of current invoice state before change (for update/delete)
+
+  // Invoice reference (null for create since invoice doesn't exist yet)
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  // Submitter
+  submittedById String
+  submittedBy   User     @relation("InvoiceReviewSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime @default(now())
+
+  // Reviewer (filled on approve/reject)
+  reviewedById String?
+  reviewedBy   User?     @relation("InvoiceReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  // Reviewer feedback
+  reviewNote   String?  @db.Text
+  reviewImages String[] // uploadthing URLs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Audit log entries
+  auditLogs InvoiceReviewAuditLog[]
+
+  @@index([status])
+  @@index([type])
+  @@index([invoiceId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("invoice_reviews")
+}
+
+model InvoiceReviewAuditLog {
+  id String @id @default(cuid())
+
+  action   String // submitted, approved, rejected, cancelled
+  note     String? @db.Text
+  metadata Json? // Any extra context
+
+  performedById String
+  performedBy   User   @relation("InvoiceReviewAuditPerformer", fields: [performedById], references: [id])
+
+  reviewId String
+  review   InvoiceReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("invoice_review_audit_logs")
+}

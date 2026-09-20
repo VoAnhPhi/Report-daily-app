@@ -1,0 +1,76 @@
+enum OrderReviewType {
+  status_transition // Approval gate for OrderTransitionModal (Group A)
+}
+
+enum OrderReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model OrderReview {
+  id     String            @id @default(cuid())
+  type   OrderReviewType
+  status OrderReviewStatus @default(pending)
+
+  // Proposed payload (e.g. for status_transition: { targetStatus, reason, formData })
+  // Previous snapshot (e.g. { status: currentStatus })
+  proposedData Json?
+  previousData Json?
+
+  // Target entity — always an Order for this review type
+  orderId String
+  order   Order  @relation("OrderReviews", fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Denormalized for list display
+  targetName String? // typically the order code
+
+  // Submitter
+  submittedById String
+  submittedBy   User   @relation("OrderReviewSubmitter", fields: [submittedById], references: [id])
+
+  // Reviewer (filled on approval/rejection)
+  reviewedById String?
+  reviewedBy   User?     @relation("OrderReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNote   String?   @db.Text
+
+  note     String? @db.Text
+  evidence Json? // optional array of evidence URLs
+
+  // Result tracking after approval execution: stores the operationId returned
+  // by the order transition engine so the admin UI can poll progress and the
+  // review record retains a permanent link to the operation.
+  resultOperationId String? // OrderTransitionOperation.id, set on approve
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs OrderReviewAuditLog[]
+
+  @@index([status])
+  @@index([type])
+  @@index([orderId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("order_reviews")
+}
+
+model OrderReviewAuditLog {
+  id            String      @id @default(cuid())
+  orderReviewId String
+  orderReview   OrderReview @relation(fields: [orderReviewId], references: [id], onDelete: Cascade)
+
+  action   String // submitted, approved, rejected, cancelled
+  actorId  String
+  actor    User    @relation("OrderReviewAuditActor", fields: [actorId], references: [id])
+  note     String? @db.Text
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderReviewId])
+  @@index([actorId])
+  @@map("order_review_audit_logs")
+}

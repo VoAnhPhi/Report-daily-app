@@ -1,0 +1,105 @@
+// Sổ chốt KPI ngày — ĐỢT 2 của bảng chỉ tiêu ngày (§30 tài liệu vận hành §70).
+//
+// Nằm trong `prisma/**` ⇒ BĂNG QUA NỀN CHUNG §42 TỰ ĐỘNG qua bộ điều phối
+// `scripts/split/sync-shared-base.sh`. Đừng chép tay tệp này sang WORKERS.
+//
+// ⚠ ĐỢT 2 CHỈ THÊM HAI BẢNG RỖNG. Không sửa `product.prisma`, không sửa
+//   `order.prisma`. Hai `@@index([createdAt])` từng có trong bản nháp đã BỎ HẲN:
+//   chúng sinh `CREATE INDEX` không CONCURRENTLY trên hai bảng nóng nhất, mà
+//   `.omc/scripts/trien-khai/apps.d/api-prod.conf` chạy `prisma migrate deploy`
+//   KHÔNG NGƯỜI XEM mỗi 2 phút dưới trần `HAN_MIGRATE=600`. Quá hạn ⇒
+//   `_prisma_migrations.finished_at IS NULL` ⇒ P3009 chặn MỌI lượt deploy sau đó.
+//   Muốn cắm chỉ mục thì làm TÁCH RIÊNG, bằng tay, ngoài giờ, CONCURRENTLY.
+
+/// SỔ CHỐT KPI NGÀY — ĐỢT 2.
+///
+/// VÌ SAO TỒN TẠI: Đợt 1 tính SỐNG trong request (`kpi.service.ts:45`), nên số của một
+/// ngày quá khứ CO GIÃN mỗi lần dữ liệu gốc bị xoá cứng — `Product` không có `deletedAt`
+/// và `posts.service.ts:1803` xoá thật. Bảng này đóng băng con số của từng ngày.
+///
+/// ⚠ BA TRẠNG THÁI, KHÔNG PHẢI HAI:
+///   * dòng VẮNG MẶT            = CHƯA CHỐT ⇒ đường đọc phải tính sống.
+///   * dòng CÓ MẶT, `value` != null = đã chốt, có số.
+///   * dòng CÓ MẶT, `value` = null   = đã chốt, phép đo chạy SẠCH và kết luận
+///     "không có mẫu số / không có nghĩa vụ trong kỳ". Đây là kết luận THẬT, không
+///     phải lỗi: `kpi.service.ts:526` (TT21) và `:753` (CN05) trả đúng như vậy.
+/// Gộp "vắng mặt" với "value null" là bẫy số-0-im-lặng §44 ở dạng nguy hiểm nhất.
+///
+/// ⚠ KHÔNG CÓ CỘT `error`. Cron CHỈ chốt những ô đo SẠCH (`loi === null`). Ô đo hỏng
+/// được để VẮNG MẶT — "vắng mặt" đã có sẵn nghĩa "chưa chốt, đọc sống, đêm sau thử
+/// lại", nên không cần trạng thái thứ tư. Hệ quả: cron chỉ CHÈN, không bao giờ SỬA,
+/// nên `createMany({ skipDuplicates: true })` là đúng nghĩa đen.
+///
+/// ⚠ CRON KHÔNG BAO GIỜ CHỐT 7 MÃ `chua_co_nguon` (TT03/TT05/TT09/TT12/TT13/TT16/TT17).
+/// "Chưa có nguồn" là HẰNG SỐ của danh mục, không phải phép đo của ngày. Chốt chúng
+/// bằng `source='collected'` sẽ KHOÁ VĨNH VIỄN chính ô nhập tay mà Đợt 2 sinh ra.
+/// Chỉ `MA_KPI_DO_DUOC` (19 mã) mới vào sổ do cron; 7 mã kia chỉ vào sổ do NGƯỜI.
+///
+/// ⚠ CHỈ dùng cho truy vấn MỘT NGÀY. KPI của khoảng nhiều ngày KHÔNG phải tổng các
+/// ngày — TT01 đếm hồ sơ PHÂN BIỆT, TT21/CN05 là phân số, CN01–CN03 là xếp hạng.
+model KpiDailyValue {
+  /// Ngày lịch Việt Nam, kiểu DATE (không giờ) — cùng lý do với `DailyReport.reportDate`
+  /// và `ProductViewDaily.day`.
+  day     DateTime @db.Date
+  /// Mã chỉ tiêu — khớp `MaKpi` ở `src/kpi/kpi.constants.ts:17-43`.
+  ///
+  /// ⚠ CỐ Ý là `String` chứ không enum Postgres: `check-migration-idempotency.sh:242`
+  /// bắt nhánh `CREATE TYPE` mà KHÔNG có điều kiện `&& !infe`, tức `IF NOT EXISTS`
+  /// không cứu được và bắt buộc phải bọc DO-block. Tiền lệ trong kho:
+  /// `CommissionsDailyAgg.status String` dù `enum CommissionStatus` có thật.
+  kpiCode String
+
+  /// `null` = phép đo chạy sạch nhưng không có mẫu số. KHÔNG BAO GIỜ là 0 thay thế.
+  value          Float?
+  /// Con số bổ trợ / mẫu số (`giaTriPhu`). Cùng luật null với `value`.
+  secondaryValue Float?
+  /// Xếp hạng cá nhân đã chốt (CN01/CN02/CN03), Json thô.
+  ///
+  /// ⚠ CỐ Ý không dựng quan hệ tới `User`: `userId` trong đó BỊ NẠP CHỒNG NGHĨA —
+  /// CN01 rơi về `referenceId` khi không tra được User (kpi.service.ts:567), CN03 đặt
+  /// `Customer.id` vào đó (kpi.service.ts:676). Một khoá ngoại thật sẽ vỡ ở cả hai.
+  ranking        Json?
+
+  /// `collected` = cron thu thập; `manual` = người nhập tay.
+  /// ⚠ Cron KHÔNG BAO GIỜ đụng dòng đã có (chỉ `createMany skipDuplicates`), nên một
+  /// dòng `manual` là bất khả xâm phạm theo CƠ CHẾ, không phải theo lời dặn.
+  source   String
+  /// Thời điểm con số này được đặt. Nhập tay đè lên thì ghi lại mốc mới (tường minh).
+  frozenAt DateTime @default(now())
+
+  @@id([day, kpiCode])
+  @@map("kpi_daily_values")
+}
+
+/// Phụ lục kiểm toán của việc NHẬP TAY — CHỈ GHI THÊM, không bao giờ sửa/xoá.
+///
+/// Sửa một số đã nhập = ghi THÊM một dòng mới (tiền lệ `SalaryDisbursementVoucherEvent`).
+/// Lưu cả id LẪN TÊN người nhập tại thời điểm đó và CỐ Ý không dựng quan hệ tới `User`:
+/// đây là bản ghi lịch sử, đổi tên tài khoản về sau không được viết lại quá khứ (tiền lệ
+/// `ContractIssuance.issuedByName`). `JwtPayload` (`src/auth/jwt-payload.ts:4-11`) mang
+/// đúng `id/email/phoneNumber/referenceId` — KHÔNG có tên — nên tên phải tra một lần
+/// lúc ghi rồi ĐÓNG BĂNG.
+///
+/// ⚠ KHÔNG khai `@@index` nào: bảng này tối đa 7 mã × số lần sửa mỗi ngày. Thêm chỉ mục
+/// cho một bảng không có đường đọc nào trong Đợt 2 là thêm việc phải mirror, không phải
+/// thêm tốc độ.
+model KpiManualEntryLog {
+  id      String   @id @default(uuid())
+  day     DateTime @db.Date
+  kpiCode String
+
+  /// `set` = đặt/sửa số; `clear` = xoá số đã nhập.
+  /// Có cột này vì `previousValue = null` và `newValue = null` cùng lúc là trạng thái
+  /// hợp lệ (xoá một ô vốn đã trống) — không có nó thì hai hành động nhìn giống hệt nhau.
+  action        String
+  previousValue Float?
+  newValue      Float?
+
+  enteredById   String
+  enteredByName String
+  note          String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@map("kpi_manual_entry_logs")
+}

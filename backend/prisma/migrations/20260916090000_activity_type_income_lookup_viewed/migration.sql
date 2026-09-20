@@ -1,0 +1,21 @@
+-- Nhật ký KIỂM TOÁN cho bề mặt "Tra cứu thu nhập" (cổng affiliate): ai đã mở góc
+-- nhìn thu nhập của ai. Target = USER bị tra cứu, uploader = người tra cứu.
+--
+-- VÌ SAO BÂY GIỜ: cùng đợt này, người được cấp `income_lookup.access` được nới từ
+-- "F1+F2 của chính họ ∪ danh sách chăm sóc đã duyệt" lên TOÀN HỆ THỐNG. Trước đó
+-- rào phạm vi ấy LÀ cơ chế kiểm soát duy nhất (bề mặt này không có nhật ký, cũng
+-- không có giới hạn tần suất) — gỡ rào đi mà không thay gì vào là mất sạch dấu vết.
+--
+-- ĐỨNG RIÊNG MỘT MIGRATION: Postgres cấm dùng một giá trị enum vừa `ADD VALUE` trong
+-- cùng transaction đã thêm nó, mà Prisma bọc mỗi file migration trong một transaction.
+-- File này CHỈ thêm giá trị, không có DDL/DML nào tham chiếu nó.
+-- Cùng tiền lệ với 20260912090000_activity_type_user_referrer_assigned.
+--
+-- ⚠ Chỉ ADD VALUE, KHÔNG BAO GIỜ `RENAME VALUE` (§38/§49): rename không idempotent và
+-- nó viết đè lên các dòng lịch sử đã mang nhãn cũ.
+--
+-- ⚠ Thêm giá trị vào enum này KHÔNG phải thao tác trơ: `ACTIVITY_TYPE_TIERS` trong
+-- src/logs-retention/retention-policy.config.ts khai `Record<ActivityType, RetentionTier>`
+-- và tệp đó THROW ngay ở tầng module khi thiếu ánh xạ ⇒ quên khai là API KHÔNG BOOT.
+-- Ánh xạ đã thêm trong cùng đợt này, tier HOT (dấu vết kiểm toán phải sống lâu).
+ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'INCOME_LOOKUP_VIEWED'; -- idempotency-ok: IF NOT EXISTS

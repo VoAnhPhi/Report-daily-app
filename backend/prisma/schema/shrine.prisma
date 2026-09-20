@@ -1,0 +1,178 @@
+// ĐIỆN KIẾN CHỦ — bản đồ sao công khai tại shrines.acta.vn
+//
+// Mỗi thành viên ứng với đúng một ngôi sao trong chòm hoa lan Cattleya. Ngôi sao
+// TỒN TẠI SẴN cho mọi thành viên; ghi danh chỉ gắn một cái tên vào nó. Nhờ vậy bầu
+// trời không bao giờ trống vào ngày ra mắt, mà vẫn xin đồng ý đúng Luật 91/2025.
+//
+// Đặc tả nghiệp vụ: .planning/shrine/NGHIEP-VU.md
+// Thiết kế kỹ thuật: .planning/shrine/KY-THUAT.md
+
+enum ShrineStatus {
+  pending_member_consent // admin đã mời, chờ thành viên đồng ý
+  pending_admin_review // thành viên đã xin, chờ admin duyệt
+  pending_second_approval // admin đề xuất, chờ admin thứ hai duyệt
+  enrolled // đã ghi danh — sao sáng, tên hiện công khai
+  declined // thành viên từ chối lời mời
+  rejected // admin từ chối đơn xin
+  withdrawn // thành viên tự rút tên
+  revoked // admin thu hồi, có lý do
+  expired // lời mời quá hạn không phản hồi
+
+  // Ngôi sao ĐANG ghi danh nhưng tài khoản chủ đã rời trạng thái `active` (bị
+  // khoá, KYC bị từ chối, xoá mềm). Sao tắt ngấm và tên biến khỏi bản đồ công khai.
+  //
+  // ⚠ KHÁC HẲN `revoked`/`withdrawn`: đây KHÔNG phải rút lại đồng ý. Thành viên
+  // không làm gì sai và không yêu cầu gì cả — chỉ là tư cách thành viên tạm dừng.
+  // Vì vậy `displayName`/`displayNameMode`/`nicknameRaw`/`enrolledAt` được GIỮ
+  // NGUYÊN (DTO công khai đã ép null cho mọi trạng thái khác `enrolled` nên không
+  // rò rỉ gì), để khi tài khoản hoạt động trở lại thì ngôi sao sáng lại y như cũ
+  // mà không bắt người ta ghi danh lần nữa.
+  suspended
+}
+
+enum ShrineOrigin {
+  admin_invite // admin chọn rồi mời
+  member_request // thành viên tự xin
+}
+
+enum ShrineNameMode {
+  full // Nguyễn Minh Anh
+  shortened // Nguyễn M. A
+  nickname // tự đặt, tối đa 40 ký tự
+}
+
+enum ShrineEventAction {
+  invited
+  invite_expired
+  requested
+  member_consented
+  member_declined
+  member_withdrew
+  admin_proposed
+  admin_second_approved
+  admin_approved
+  admin_rejected
+  admin_renamed
+  admin_revoked
+  position_assigned
+  position_recomputed
+  account_deactivated // tài khoản rời `active` → sao tắt ngấm
+  account_reactivated // tài khoản hoạt động trở lại → sao sáng lại
+}
+
+enum ShrineActorType {
+  member
+  admin
+  system
+}
+
+model ShrineStar {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation("UserShrineStar", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Khoá URL công khai — base32 của HMAC-SHA256(SHRINE_SLUG_SECRET, referenceId),
+  // lấy 12 ký tự đầu.
+  //
+  // ⚠ TUYỆT ĐỐI KHÔNG dùng `referenceId` làm khoá công khai. Nó là số đếm tuần tự
+  // KHÔNG ĐỨT QUÃNG sinh từ một sequence Postgres, nên publish ra là tặng bất kỳ ai
+  // toàn bộ danh sách thành viên, tổng số và tốc độ tăng trưởng chỉ bằng một vòng lặp.
+  // `referenceId` chỉ là thứ gõ vào ô tìm kiếm, không bao giờ nằm trong URL, thẻ OG,
+  // sitemap hay thuộc tính href.
+  publicSlug String @unique
+
+  status ShrineStatus
+  origin ShrineOrigin
+
+  // ---------- tên hiển thị ----------
+  // null khi chưa ghi danh. Thành viên tự chọn kiểu; admin sửa được (mọi lần sửa đều
+  // ghi vào ShrineStarEvent kèm giá trị cũ).
+  displayName     String?
+  displayNameMode ShrineNameMode?
+  nicknameRaw     String? // biệt danh gốc thành viên nhập, giữ để đối chiếu khi admin sửa
+
+  // ---------- vị trí ----------
+  // Băm ra MỘT LẦN lúc tạo bản ghi rồi GHI LẠI, không tính lại mỗi lần đọc.
+  // Thuật toán đã ổn định, nhưng chỉ cần một lần đổi bán kính, thêm cánh hay nâng cấp
+  // thư viện băm là mọi ngôi sao dịch chỗ. Với một điện thờ, sao đổi chỗ không phải
+  // lỗi hiển thị — đó là mất niềm tin với thành viên. Băm để sinh ra, DB để bảo đảm.
+  posX             Float
+  posY             Float
+  posZ             Float
+  starIndex        Int // chỉ số điểm neo trong đám mây 20.000 điểm
+  regionIndex      Int // 0..5 — xem ShrineRegion trong mã nguồn
+  placementVersion Int     @default(1)
+  isReserved       Boolean @default(false) // ô dành riêng (sáng lập viên, vùng Nhuỵ)
+
+  // ---------- bằng chứng đồng ý (Luật 91/2025 + NĐ 356/2025) ----------
+  // Đồng ý phải tự nguyện, cụ thể, đầy đủ thông tin và KIỂM CHỨNG ĐƯỢC. Im lặng không
+  // phải là đồng ý, nên phải lưu được thời điểm, nguồn và phiên bản văn bản đã hiển thị.
+  consentToken          String?   @unique // mã trong link email, dùng một lần
+  consentTokenExpiresAt DateTime? @db.Timestamp(6)
+  consentedAt           DateTime? @db.Timestamp(6)
+  consentIp             String?
+  consentUserAgent      String?
+  consentTextVersion    String? // phiên bản văn bản đồng ý người dùng đã đọc
+
+  // ---------- dấu vết thao tác ----------
+  invitedByUserId  String?
+  invitedAt        DateTime? @db.Timestamp(6)
+  reviewedByUserId String?
+  reviewedAt       DateTime? @db.Timestamp(6)
+  revokedByUserId  String?
+  revokedAt        DateTime? @db.Timestamp(6)
+  revokeReason     String?   @db.Text
+
+  // Ghi tại thời điểm chuyển sang `enrolled`. Cột riêng chứ không suy từ consentedAt
+  // hay reviewedAt lúc đọc, vì hai chiều ghi danh dùng hai trường khác nhau và truy
+  // vấn "ghi danh trong khoảng thời gian X" là truy vấn nóng của trang quản lý.
+  enrolledAt DateTime? @db.Timestamp(6)
+
+  // Ghi tại thời điểm chuyển sang `suspended`, xoá khi sáng lại. Cột riêng chứ
+  // không đọc ngược từ ShrineStarEvent, vì bảng danh sách quản trị cần trả lời
+  // "tắt từ bao giờ" trong cùng một câu truy vấn với phần còn lại của dòng.
+  suspendedAt DateTime? @db.Timestamp(6)
+
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  updatedAt DateTime @updatedAt @db.Timestamp(6)
+
+  events ShrineStarEvent[]
+
+  @@index([status])
+  @@index([regionIndex])
+  @@index([status, enrolledAt])
+  @@index([enrolledAt])
+  @@map("shrine_stars")
+}
+
+// Lịch sử dùng bảng RIÊNG chứ không dùng chung `activity_logs`, vì ba lý do:
+//   1. tab Lịch sử của trang quản lý cần lọc và phân trang riêng
+//   2. cần lưu bằng chứng đồng ý (IP, user agent) mà bảng chung không có chỗ
+//   3. `activity_logs` từng mất trắng dữ liệu loại PRODUCT suốt nhiều tháng vì không
+//      ai ghi vào — không nên đặt một nghĩa vụ pháp lý lên nó
+model ShrineStarEvent {
+  id           String     @id @default(cuid())
+  shrineStarId String
+  shrineStar   ShrineStar @relation(fields: [shrineStarId], references: [id], onDelete: Cascade)
+
+  action      ShrineEventAction
+  actorType   ShrineActorType
+  actorUserId String? // null khi actorType = system
+
+  fromStatus ShrineStatus?
+  toStatus   ShrineStatus?
+
+  note     String? @db.Text
+  metadata Json? // Prisma.InputJsonValue — không bao giờ Record<string, any>
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([shrineStarId, createdAt])
+  @@index([action])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@map("shrine_star_events")
+}

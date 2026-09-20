@@ -1,0 +1,88 @@
+// ==================== TWO-PHASE REVIEW GATE (v1.5 Phase 49 — HARD-09) ====================
+// Net-new two-phase review-approval gate for partner/third-party training-video
+// CRUD — the §5 house pattern (clone of WarehouseReview / news-review): a partner
+// proposes create/update/delete → a DIFFERENT admin approves → the real
+// TrainingVideo write is applied INSIDE the reviewAction $transaction; self-approval
+// is server-blocked (submittedById !== reviewedById); points/visibility key off the
+// APPROVED state only (a pending/rejected review never mutates TrainingVideo).
+//
+// D-4: Phase 48 admin publish stays DIRECT — this gate is ADDITIVE and lands ONLY
+// here, for partner self-upload; it is NEVER retrofitted into the Phase-48 path.
+// D-5: platform-global — NO businessId anywhere.
+// ID strategy: @default(uuid()) to match the Phase 48 training content models
+// (TrainingVideo/TrainingVideoWatchProgress/TrainingVideoRating).
+//
+// NOTE: TrainingVideoReviewAuditLog (review-workflow events:
+// submitted/approved/rejected/cancelled) is INTENTIONALLY a separate, disjoint
+// model from TrainingVideoAuditLog (49-03 anti-abuse events) — two distinct
+// tables, non-overlapping domains; they are NOT merged.
+
+enum TrainingVideoReviewType {
+  create
+  update
+  delete
+}
+
+enum TrainingVideoReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model TrainingVideoReview {
+  id     String                    @id @default(uuid())
+  type   TrainingVideoReviewType
+  status TrainingVideoReviewStatus @default(pending)
+
+  // The proposed and previous data snapshots (preview-confirm diff source)
+  proposedData Json?
+  previousData Json?
+
+  // Target video (null for create)
+  targetId      String?
+  trainingVideo TrainingVideo? @relation(fields: [targetId], references: [id])
+  targetName    String? // Denormalized title for display
+
+  // Submitter
+  submittedById String
+  submittedBy   User   @relation("TrainingVideoReviewSubmitter", fields: [submittedById], references: [id])
+
+  // Reviewer (filled on approval/rejection — must differ from submitter)
+  reviewedById String?
+  reviewedBy   User?     @relation("TrainingVideoReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNote   String?   @db.Text
+
+  note     String? @db.Text
+  evidence Json? // Array of evidence URLs (images/documents)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs TrainingVideoReviewAuditLog[]
+
+  @@index([status])
+  @@index([type])
+  @@index([status, createdAt])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@map("training_video_reviews")
+}
+
+model TrainingVideoReviewAuditLog {
+  id                    String              @id @default(uuid())
+  trainingVideoReviewId String
+  trainingVideoReview   TrainingVideoReview @relation(fields: [trainingVideoReviewId], references: [id], onDelete: Cascade)
+
+  action   String // submitted, approved, rejected, cancelled
+  actorId  String
+  actor    User    @relation("TrainingVideoReviewAuditActor", fields: [actorId], references: [id])
+  note     String? @db.Text
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([trainingVideoReviewId])
+  @@index([actorId])
+  @@map("training_video_review_audit_logs")
+}

@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_DailyReport" targetNamespace="https://acta.vn/model/daily-report">
+ <bpmn:process id="Process_ReportReview" name="Nộp và duyệt một báo cáo ngày" isExecutable="false">
+  <bpmn:laneSet id="LaneSet_ReportReview">
+   <bpmn:lane id="Lane_System" name="Hệ thống">
+    <bpmn:flowNodeRef>Task_Validate</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Gateway_Valid</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Task_Persist</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Task_Carry</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>End_Continued</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Task_Reopen</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Task_Expire</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>End_Expired</bpmn:flowNodeRef>
+   </bpmn:lane>
+   <bpmn:lane id="Lane_Member" name="Thành viên">
+    <bpmn:flowNodeRef>Start_Ready</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Task_Edit</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Task_Submit</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Task_Error</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Task_Revise</bpmn:flowNodeRef>
+   </bpmn:lane>
+   <bpmn:lane id="Lane_Reviewer" name="Người duyệt">
+    <bpmn:flowNodeRef>Task_Review</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Event_ReviewExpired</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>Gateway_Decision</bpmn:flowNodeRef>
+    <bpmn:flowNodeRef>End_Accepted</bpmn:flowNodeRef>
+   </bpmn:lane>
+  </bpmn:laneSet>
+  <bpmn:startEvent id="Start_Ready" name="Bản đã sẵn sàng">
+    <bpmn:outgoing>Flow_Ready_Edit</bpmn:outgoing>
+  </bpmn:startEvent>
+  <bpmn:userTask id="Task_Edit" name="Rà soát, sửa nội dung">
+    <bpmn:incoming>Flow_Ready_Edit</bpmn:incoming>
+    <bpmn:incoming>Flow_Error_Edit</bpmn:incoming>
+    <bpmn:outgoing>Flow_Edit_Submit</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="Task_Submit" name="Nộp báo cáo">
+    <bpmn:incoming>Flow_Edit_Submit</bpmn:incoming>
+    <bpmn:incoming>Flow_Revise_Submit</bpmn:incoming>
+    <bpmn:outgoing>Flow_Submit_Validate</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:serviceTask id="Task_Validate" name="Kiểm tra quyền, nội dung và giờ khóa">
+    <bpmn:incoming>Flow_Submit_Validate</bpmn:incoming>
+    <bpmn:outgoing>Flow_Validate_Gateway</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:exclusiveGateway id="Gateway_Valid" name="Hợp lệ?">
+    <bpmn:incoming>Flow_Validate_Gateway</bpmn:incoming>
+    <bpmn:outgoing>Flow_Invalid</bpmn:outgoing>
+    <bpmn:outgoing>Flow_Valid</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:userTask id="Task_Error" name="Xem lý do và sửa">
+    <bpmn:incoming>Flow_Invalid</bpmn:incoming>
+    <bpmn:outgoing>Flow_Error_Edit</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:serviceTask id="Task_Persist" name="Lưu revision và chốt hạn duyệt">
+    <bpmn:incoming>Flow_Valid</bpmn:incoming>
+    <bpmn:outgoing>Flow_Persist_Review</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:userTask id="Task_Review" name="Đọc và kết luận">
+    <bpmn:incoming>Flow_Persist_Review</bpmn:incoming>
+    <bpmn:outgoing>Flow_Review_Decision</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:boundaryEvent id="Event_ReviewExpired" name="Hết hạn duyệt" attachedToRef="Task_Review" cancelActivity="true">
+    <bpmn:outgoing>Flow_Expired</bpmn:outgoing>
+    <bpmn:timerEventDefinition id="Timer_ReviewDeadline"><bpmn:timeDate xsi:type="bpmn:tFormalExpression">${reviewDeadlineAt}</bpmn:timeDate></bpmn:timerEventDefinition>
+  </bpmn:boundaryEvent>
+  <bpmn:exclusiveGateway id="Gateway_Decision" name="Kết luận?">
+    <bpmn:incoming>Flow_Review_Decision</bpmn:incoming>
+    <bpmn:outgoing>Flow_Accepted</bpmn:outgoing>
+    <bpmn:outgoing>Flow_Continued</bpmn:outgoing>
+    <bpmn:outgoing>Flow_Rejected</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:endEvent id="End_Accepted" name="Đạt">
+    <bpmn:incoming>Flow_Accepted</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:serviceTask id="Task_Carry" name="Tạo hoặc xác nhận việc chuyển tiếp">
+    <bpmn:incoming>Flow_Continued</bpmn:incoming>
+    <bpmn:outgoing>Flow_Carry_End</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:endEvent id="End_Continued" name="Tiếp tục thực hiện">
+    <bpmn:incoming>Flow_Carry_End</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:serviceTask id="Task_Reopen" name="Mở cửa sổ sửa và gửi lý do">
+    <bpmn:incoming>Flow_Rejected</bpmn:incoming>
+    <bpmn:outgoing>Flow_Reopen_Revise</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:userTask id="Task_Revise" name="Sửa theo yêu cầu">
+    <bpmn:incoming>Flow_Reopen_Revise</bpmn:incoming>
+    <bpmn:outgoing>Flow_Revise_Submit</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:serviceTask id="Task_Expire" name="Ghi nhận quá hạn duyệt">
+    <bpmn:incoming>Flow_Expired</bpmn:incoming>
+    <bpmn:outgoing>Flow_Expire_End</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:endEvent id="End_Expired" name="Chưa có kết luận">
+    <bpmn:incoming>Flow_Expire_End</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:sequenceFlow id="Flow_Ready_Edit" sourceRef="Start_Ready" targetRef="Task_Edit">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Edit_Submit" sourceRef="Task_Edit" targetRef="Task_Submit">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Submit_Validate" sourceRef="Task_Submit" targetRef="Task_Validate">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Validate_Gateway" sourceRef="Task_Validate" targetRef="Gateway_Valid">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Invalid" sourceRef="Gateway_Valid" targetRef="Task_Error" name="Không hợp lệ">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">invalid</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Error_Edit" sourceRef="Task_Error" targetRef="Task_Edit">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Valid" sourceRef="Gateway_Valid" targetRef="Task_Persist" name="Hợp lệ">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">valid</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Persist_Review" sourceRef="Task_Persist" targetRef="Task_Review">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Review_Decision" sourceRef="Task_Review" targetRef="Gateway_Decision">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Accepted" sourceRef="Gateway_Decision" targetRef="End_Accepted" name="Đạt">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">ACCEPTED</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Continued" sourceRef="Gateway_Decision" targetRef="Task_Carry" name="Tiếp tục">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">CONTINUED</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Carry_End" sourceRef="Task_Carry" targetRef="End_Continued">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Rejected" sourceRef="Gateway_Decision" targetRef="Task_Reopen" name="Chưa đạt">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">REJECTED</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Reopen_Revise" sourceRef="Task_Reopen" targetRef="Task_Revise">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Revise_Submit" sourceRef="Task_Revise" targetRef="Task_Submit">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Expired" sourceRef="Event_ReviewExpired" targetRef="Task_Expire">
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Flow_Expire_End" sourceRef="Task_Expire" targetRef="End_Expired">
+  </bpmn:sequenceFlow>
+ </bpmn:process>
+ <bpmn:collaboration id="Collaboration_ReportReview">
+  <bpmn:participant id="Participant_ACTA" name="ACTA Social" processRef="Process_ReportReview" />
+ </bpmn:collaboration>
+ <bpmndi:BPMNDiagram id="Diagram_ReportReview">
+  <bpmndi:BPMNPlane id="Plane_ReportReview" bpmnElement="Collaboration_ReportReview">
+   <bpmndi:BPMNShape id="Shape_Participant_ACTA" bpmnElement="Participant_ACTA" isHorizontal="true"><dc:Bounds x="40" y="70" width="1900" height="640" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Lane_System" bpmnElement="Lane_System" isHorizontal="true"><dc:Bounds x="70" y="70" width="1870" height="300" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Lane_Member" bpmnElement="Lane_Member" isHorizontal="true"><dc:Bounds x="70" y="370" width="1870" height="170" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Lane_Reviewer" bpmnElement="Lane_Reviewer" isHorizontal="true"><dc:Bounds x="70" y="540" width="1870" height="170" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Start_Ready" bpmnElement="Start_Ready"><dc:Bounds x="130" y="437" width="36" height="36" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Edit" bpmnElement="Task_Edit"><dc:Bounds x="210" y="415" width="150" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Submit" bpmnElement="Task_Submit"><dc:Bounds x="410" y="415" width="120" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Validate" bpmnElement="Task_Validate"><dc:Bounds x="580" y="130" width="150" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Gateway_Valid" bpmnElement="Gateway_Valid"><dc:Bounds x="790" y="145" width="50" height="50" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Error" bpmnElement="Task_Error"><dc:Bounds x="780" y="415" width="140" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Persist" bpmnElement="Task_Persist"><dc:Bounds x="900" y="130" width="160" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Review" bpmnElement="Task_Review"><dc:Bounds x="1120" y="585" width="160" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Event_ReviewExpired" bpmnElement="Event_ReviewExpired"><dc:Bounds x="1244" y="647" width="36" height="36" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Gateway_Decision" bpmnElement="Gateway_Decision"><dc:Bounds x="1350" y="600" width="50" height="50" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_End_Accepted" bpmnElement="End_Accepted"><dc:Bounds x="1500" y="607" width="36" height="36" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Carry" bpmnElement="Task_Carry"><dc:Bounds x="1470" y="110" width="170" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_End_Continued" bpmnElement="End_Continued"><dc:Bounds x="1740" y="132" width="36" height="36" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Reopen" bpmnElement="Task_Reopen"><dc:Bounds x="1470" y="280" width="170" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Revise" bpmnElement="Task_Revise"><dc:Bounds x="1690" y="415" width="150" height="80" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_Task_Expire" bpmnElement="Task_Expire"><dc:Bounds x="1470" y="200" width="170" height="70" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNShape id="Shape_End_Expired" bpmnElement="End_Expired"><dc:Bounds x="1740" y="217" width="36" height="36" /></bpmndi:BPMNShape>
+   <bpmndi:BPMNEdge id="Edge_Flow_Ready_Edit" bpmnElement="Flow_Ready_Edit"><di:waypoint x="166" y="455" /><di:waypoint x="210" y="455" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Edit_Submit" bpmnElement="Flow_Edit_Submit"><di:waypoint x="360" y="455" /><di:waypoint x="410" y="455" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Submit_Validate" bpmnElement="Flow_Submit_Validate"><di:waypoint x="530" y="455" /><di:waypoint x="550" y="455" /><di:waypoint x="550" y="170" /><di:waypoint x="580" y="170" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Validate_Gateway" bpmnElement="Flow_Validate_Gateway"><di:waypoint x="730" y="170" /><di:waypoint x="790" y="170" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Invalid" bpmnElement="Flow_Invalid"><di:waypoint x="815" y="195" /><di:waypoint x="815" y="415" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Error_Edit" bpmnElement="Flow_Error_Edit"><di:waypoint x="780" y="455" /><di:waypoint x="750" y="455" /><di:waypoint x="750" y="520" /><di:waypoint x="185" y="520" /><di:waypoint x="185" y="455" /><di:waypoint x="210" y="455" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Valid" bpmnElement="Flow_Valid"><di:waypoint x="840" y="170" /><di:waypoint x="900" y="170" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Persist_Review" bpmnElement="Flow_Persist_Review"><di:waypoint x="1060" y="170" /><di:waypoint x="1090" y="170" /><di:waypoint x="1090" y="625" /><di:waypoint x="1120" y="625" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Review_Decision" bpmnElement="Flow_Review_Decision"><di:waypoint x="1280" y="625" /><di:waypoint x="1350" y="625" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Accepted" bpmnElement="Flow_Accepted"><di:waypoint x="1400" y="625" /><di:waypoint x="1500" y="625" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Continued" bpmnElement="Flow_Continued"><di:waypoint x="1375" y="600" /><di:waypoint x="1375" y="150" /><di:waypoint x="1470" y="150" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Carry_End" bpmnElement="Flow_Carry_End"><di:waypoint x="1640" y="150" /><di:waypoint x="1740" y="150" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Rejected" bpmnElement="Flow_Rejected"><di:waypoint x="1375" y="650" /><di:waypoint x="1375" y="320" /><di:waypoint x="1470" y="320" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Reopen_Revise" bpmnElement="Flow_Reopen_Revise"><di:waypoint x="1640" y="320" /><di:waypoint x="1660" y="320" /><di:waypoint x="1660" y="455" /><di:waypoint x="1690" y="455" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Revise_Submit" bpmnElement="Flow_Revise_Submit"><di:waypoint x="1840" y="455" /><di:waypoint x="1870" y="455" /><di:waypoint x="1870" y="735" /><di:waypoint x="385" y="735" /><di:waypoint x="385" y="455" /><di:waypoint x="410" y="455" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Expired" bpmnElement="Flow_Expired"><di:waypoint x="1280" y="665" /><di:waypoint x="1420" y="665" /><di:waypoint x="1420" y="235" /><di:waypoint x="1470" y="235" /></bpmndi:BPMNEdge>
+   <bpmndi:BPMNEdge id="Edge_Flow_Expire_End" bpmnElement="Flow_Expire_End"><di:waypoint x="1640" y="235" /><di:waypoint x="1740" y="235" /></bpmndi:BPMNEdge>
+  </bpmndi:BPMNPlane>
+ </bpmndi:BPMNDiagram>
+</bpmn:definitions>

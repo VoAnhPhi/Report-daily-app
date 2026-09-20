@@ -1,0 +1,77 @@
+/// Nhật ký PHÁT HÀNH hợp đồng.
+///
+/// Bản thân MẪU hợp đồng không nằm ở cơ sở dữ liệu — mẫu được khai cứng trong mã
+/// nguồn của acta-admin (`lib/contracts/templates/`), vì đổi nội dung một mẫu
+/// hợp đồng là thay đổi pháp lý cần rà soát và ra bản mới, không phải thứ nên
+/// sửa được qua giao diện quản trị.
+///
+/// Thứ BẮT BUỘC phải lưu là bảng này: đã phát hành cho ai, số bao nhiêu, lúc
+/// nào, và ĐÚNG dữ liệu đã dùng để in ra bản đó. Nhờ `payload` mà về sau dựng
+/// lại được y hệt bản hợp đồng đã trao cho đối tác khi họ làm mất file.
+model ContractIssuance {
+  id String @id @default(cuid())
+
+  /// Mã mẫu hợp đồng, ví dụ `business-cooperation`. Chuỗi thường chứ không phải
+  /// enum: danh mục mẫu sống ở acta-admin, thêm mẫu mới không nên kéo theo một
+  /// lần chuyển đổi cơ sở dữ liệu.
+  templateId String
+
+  /// PHIÊN BẢN của mẫu hợp đồng lúc phát hành, ví dụ `2026-08-16`.
+  ///
+  /// ⚠ Vì sao cần: `payload` chỉ chụp lại DỮ LIỆU hai bên, không chụp RUỘT hợp
+  /// đồng. Ruột nằm trong mã nguồn acta-admin và được dựng lại tại thời điểm tải
+  /// — nên khi mẫu ra bản mới (sửa chính tả, sửa dàn trang…), một bản phát hành
+  /// từ trước mà tải lại sẽ ra tờ giấy KHÁC tờ đối tác đang cầm. Cột này ghi lại
+  /// bản mẫu đã dùng để hệ thống còn biết mà cảnh báo người vận hành.
+  ///
+  /// `null` = phát hành trước ngày có cột này (16/08/2026) ⇒ coi như không rõ.
+  templateVersion String?
+
+  /// Số hợp đồng đầy đủ, ví dụ `2407.001-HĐHT/ACTA26`.
+  contractNumber String @unique
+
+  /// NGÀY phát hành (không giờ) — mốc để đếm số thứ tự trong ngày.
+  ///
+  /// ⚠ Tách riêng khỏi `createdAt` và cố ý dùng kiểu `date`. Số hợp đồng đọc là
+  /// "bản thứ XXX phát hành trong NGÀY đó", nên chỗ đếm phải là một ngày lịch,
+  /// không phải một mốc thời gian. Đếm trên `createdAt` sẽ lệch ngày ngay khi
+  /// máy chủ và người dùng khác múi giờ.
+  issuedOn DateTime @db.Date
+
+  /// Số thứ tự trong ngày, bắt đầu từ 1 (in ra thành `001`).
+  sequenceNo Int
+
+  /// Tên đối tác (Bên B) — tách ra khỏi `payload` để lọc và tìm kiếm được.
+  partyBName String
+
+  partyBTaxCode        String?
+  partyBRepresentative String?
+
+  /// Toàn bộ dữ liệu đã dùng để in bản hợp đồng này (cả Bên A lẫn Bên B).
+  ///
+  /// Đây là ẢNH CHỤP tại thời điểm phát hành, không phải con trỏ tới dữ liệu
+  /// hiện hành. Bên A có thể đổi địa chỉ hay người đại diện về sau; bản hợp đồng
+  /// đã ký thì không được đổi theo.
+  payload Json
+
+  /// Người bấm phát hành. Lưu cả id lẫn TÊN tại thời điểm đó, cố ý KHÔNG dựng
+  /// quan hệ tới `User`: đây là bản ghi lịch sử, đổi tên tài khoản về sau không
+  /// được phép viết lại quá khứ.
+  issuedById   String
+  issuedByName String
+
+  /// Doanh nghiệp phát hành, suy từ JWT. Không bao giờ nhận từ phía gọi.
+  businessId String?
+
+  createdAt DateTime @default(now())
+
+  /// Chốt chặn ở tầng dữ liệu cho việc cấp số: không bao giờ có hai bản cùng mẫu
+  /// mang cùng số thứ tự trong cùng một ngày. Khoá cấp phát ở service là hàng
+  /// rào thứ nhất, ràng buộc này là hàng rào cuối.
+  @@unique([templateId, issuedOn, sequenceNo])
+  @@index([templateId, issuedOn])
+  @@index([templateId, templateVersion])
+  @@index([partyBName])
+  @@index([createdAt])
+  @@map("contract_issuances")
+}

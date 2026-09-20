@@ -1,0 +1,239 @@
+// ============================================================================
+// THẺ NHÂN VIÊN — định danh + kiểm soát ra vào + vết dùng thẻ
+// ============================================================================
+//
+// Nguyên tắc nền: THẺ KHÔNG CHỨA DANH TÍNH. Trên chip chỉ có một credential vô
+// nghĩa và thu hồi được; tên, chức danh, quyền hạn đều nằm ở đây. Mất thẻ = đổi
+// trạng thái MỘT dòng, không phải đổi hệ thống.
+//
+// Hệ quả thứ hai, cũng là chỗ tiết kiệm lớn nhất: MỤC ĐÍCH nằm ở server chứ không
+// nằm trên thẻ. Thêm "mượn tài sản" hay "ký nhận hàng" = thêm một giá trị enum +
+// vài hàng AccessPointGrant, KHÔNG phải thu hồi và nạp lại từng tấm thẻ. Đây là lý
+// do chọn NTAG 424 DNA thay vì DESFire (DESFire cho 28 ứng dụng ON-CARD, nghe hấp
+// dẫn nhưng mỗi lần thêm mục đích lại phải chạm vào toàn bộ thẻ đang lưu hành).
+
+/// Loại chip trên thẻ. Có sẵn đường nâng cấp: nếu sau này căng tin cần ví trừ tiền
+/// khi mất mạng thì mới thêm DESFire cho riêng nhóm đó, cấu trúc dưới không phải sửa.
+enum CardChipType {
+  ntag424dna // Mặc định — AES-128 SUN/SDM, điện thoại đọc được không cần app
+  desfire_ev3 // Chỉ khi cần ví offline trên thẻ
+  mifare_classic_legacy // CHỈ để nhập liệu thẻ cũ; Crypto-1 đã bị phá, không phát hành mới
+}
+
+enum CardStatus {
+  pending_issue // Đã tạo bản ghi, chưa nạp khoá / chưa trao cho người
+  active
+  lost // Người dùng báo mất — chặn ngay, chưa kết luận
+  suspended // Tạm dừng (nghỉ không lương, điều tra…)
+  revoked // Thu hồi vĩnh viễn (nghỉ việc, thẻ bị lộ khoá)
+  expired // Quá expiresAt — tự hết hiệu lực, lưới an toàn cho việc quên thu hồi
+}
+
+/// Mục đích của một lần chạm. Thêm giá trị ở đây KHÔNG cần phát hành lại thẻ.
+enum TapPurpose {
+  door_open // Mở cửa
+  identity_verify // Quét bằng điện thoại để xác minh nhân viên (không cần app)
+  attendance // Chấm công
+  asset_checkout // Mượn / trả tài sản
+  delivery_signoff // Ký nhận hàng
+  canteen // Căng tin
+  visitor_escort // Bảo lãnh khách
+}
+
+enum TapResult {
+  granted
+  denied_unknown_card // Chữ ký hợp lệ nhưng UID không có trong hệ thống
+  denied_bad_signature // CMAC sai / giải mã thất bại ⇒ thẻ giả hoặc sai khoá
+  denied_card_revoked
+  denied_no_permission
+  denied_out_of_window // Ngoài khung giờ được phép
+  denied_replay_counter // Bộ đếm SDM không tăng ⇒ DẤU HIỆU THẺ BỊ SAO CHÉP
+}
+
+/// Thẻ vật lý đã phát cho một nhân viên.
+model EmployeeCard {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation("UserEmployeeCards", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Đa tenant — LUÔN lấy từ JWT, KHÔNG bao giờ tin payload của request.
+  businessId String
+
+  chipType CardChipType @default(ntag424dna)
+
+  /// SHA-256(UID + salt). Đường tra cứu DUY NHẤT lúc xác minh: unique, có salt, và
+  /// không phụ thuộc cách UID được chuẩn hoá chữ hoa/thường.
+  uidHash String @unique
+
+  /// UID dạng thường (hex). Cần cho chế độ offline: khoá CMAC của thẻ là
+  /// HMAC(khoá gốc, UID) nên không có UID thì KHÔNG dẫn xuất được khoá để gửi cho
+  /// thiết bị cửa — mà `uidHash` một chiều thì không lấy lại UID.
+  ///
+  /// Lưu dạng thường là có chủ đích: UID đọc được bởi BẤT KỲ điện thoại nào chạm thẻ,
+  /// nên nó bán-công khai chứ không phải bí mật. An toàn dựa vào khoá AES, KHÔNG dựa
+  /// vào việc giấu UID — kẻ có UID mà không có khoá vẫn không giả mạo được gì.
+  ///
+  /// Null = thẻ cũ nạp trước khi có cột này; chỉ mất khả năng vào danh sách offline.
+  uid String?
+
+  /// Số IN trên mặt thẻ — CỐ TÌNH KHÁC uidHash. Ai chụp ảnh mặt sau thẻ cũng không
+  /// lấy được credential. Serial chỉ dùng để nhận thẻ rơi và đối soát khi thu hồi.
+  printedSerial String @unique
+
+  /// THAM CHIẾU tới khoá trong KMS, KHÔNG PHẢI KHOÁ. Khoá AES tuyệt đối không nằm
+  /// trong DB, trong log, hay trong Git — cùng tinh thần UserIdentity.fullNumberEncrypted
+  /// nhưng chặt hơn một bậc.
+  sdmKeyRef String
+
+  /// Giá trị bộ đếm SDM CAO NHẤT từng thấy. Lần chạm nào có bộ đếm <= giá trị này
+  /// thì từ chối và báo động: đó là cách duy nhất phát hiện thẻ bị nhân bản NGAY
+  /// LÚC kẻ sao chép dùng nó.
+  lastSdmCounter Int @default(0)
+
+  status       CardStatus @default(pending_issue)
+  issuedAt     DateTime?
+  /// FK mềm tới User (admin cấp thẻ) — cố tình không tạo quan hệ để không phải thêm
+  /// back-relation thứ hai vào model User đang rất lớn.
+  issuedBy     String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  revokeReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taps CardTapEvent[] @relation("EmployeeCardTaps")
+
+  @@index([userId, status])
+  @@index([businessId, status])
+  @@index([expiresAt])
+  @@map("employee_cards")
+}
+
+/// Một điểm chạm vật lý: cửa, đầu đọc căng tin, bàn phát tài sản…
+model AccessPoint {
+  id   String @id @default(cuid())
+  name String // "Cửa kho Bình Tân — lối chính"
+
+  // ⚠ Trước 07/09/2026 điểm chạm neo vào "địa điểm kinh doanh". Nay neo thẳng kho:
+  // cửa và đầu đọc đứng ở một ĐỊA ĐIỂM VẬT LÝ, mà sau khi gộp thì địa điểm vật
+  // lý duy nhất trong hệ thống là kho.
+  warehouseId String
+  warehouse   Warehouse @relation("WarehouseAccessPoints", fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  businessId String
+
+  /// "esp32_pn532" | "hikvision_isapi" — để chuỗi thay vì enum vì danh sách thiết bị
+  /// sẽ còn dài ra và không đáng một migration mỗi lần thêm model máy.
+  deviceKind String
+
+  /// Tham chiếu KMS cho bí mật HMAC mà thiết bị dùng khi gọi POST /access/tap.
+  deviceSecretRef String
+
+  /// "fail_safe" (mất điện ⇒ nhả khoá, BẮT BUỘC trên đường thoát hiểm) hoặc
+  /// "fail_secure" (mất điện ⇒ vẫn khoá, chỉ cho phòng server/kho quỹ và PHẢI có
+  /// mở cơ khí bằng chìa).
+  failMode String
+
+  /// Danh sách cho phép đã tải sẵn tự hết hiệu lực sau bao nhiêu giờ không đồng bộ.
+  offlineTtlHours Int @default(72)
+
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  grants AccessPointGrant[] @relation("AccessPointGrants")
+  taps   CardTapEvent[]     @relation("AccessPointTaps")
+
+  @@index([businessId, warehouseId])
+  @@map("access_points")
+}
+
+/// Ai được làm gì ở điểm chạm nào, trong khung giờ nào.
+model AccessPointGrant {
+  id String @id @default(cuid())
+
+  accessPointId String
+  accessPoint   AccessPoint @relation("AccessPointGrants", fields: [accessPointId], references: [id], onDelete: Cascade)
+
+  /// Cấp theo phòng ban, theo vai trò admin, hoặc theo từng người — ĐÚNG MỘT trong ba.
+  /// Cố tình để FK mềm (không @relation): ba cột loại trừ nhau nên ràng buộc FK cứng
+  /// sẽ vướng, và tránh phải thêm back-relation vào Team / AdminRole / User.
+  /// Tham chiếu treo (VD team bị xoá) sẽ KHÔNG khớp thành viên nào ⇒ fail CLOSED,
+  /// tức là hướng an toàn.
+  teamId      String?
+  adminRoleId String?
+  userId      String?
+
+  purpose TapPurpose @default(door_open)
+
+  /// Khung giờ cho phép: [{ "dow": 1..7, "from": "07:30", "to": "18:00" }]
+  /// Dùng Json vì lịch làm việc là quyết định của tầng vận hành và sẽ còn đổi.
+  schedule Json?
+
+  validFrom  DateTime?
+  validUntil DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accessPointId, purpose])
+  @@index([teamId])
+  @@index([adminRoleId])
+  @@index([userId])
+  @@map("access_point_grants")
+}
+
+/// APPEND-ONLY. MỌI điểm chạm ghi vào đây — một dòng sự kiện duy nhất cho cửa,
+/// căng tin, chấm công, mượn tài sản. Nhờ vậy mới trả lời được câu "lúc nào nhân
+/// viên đó dùng thẻ để làm gì" mà không phải nối 5 hệ thống.
+model CardTapEvent {
+  id String @id @default(cuid())
+
+  /// NULL khi thẻ lạ — vẫn PHẢI ghi lại, vì chuỗi lần chạm thất bại chính là tín
+  /// hiệu sớm của việc có người đang thử thẻ giả.
+  cardId String?
+  card   EmployeeCard? @relation("EmployeeCardTaps", fields: [cardId], references: [id], onDelete: SetNull)
+
+  /// FK mềm — giữ được vết cả khi thẻ đã bị xoá khỏi hệ thống.
+  userId String?
+
+  /// Denormalized để không JOIN khi truy vấn theo tenant — cùng cách
+  /// `WarehouseCheckIn` đang làm.
+  businessId String
+
+  /// NULL với lần chạm xác minh bằng điện thoại (không qua thiết bị nào của công ty).
+  accessPointId String?
+  accessPoint   AccessPoint? @relation("AccessPointTaps", fields: [accessPointId], references: [id], onDelete: SetNull)
+
+  purpose TapPurpose
+  result  TapResult
+
+  /// "device_cmac" (thiết bị tự kiểm) | "server_cmac" | "uid_only" (máy thương mại
+  /// chỉ đọc UID — mức bảo đảm THẤP, ghi rõ để hậu kiểm phân biệt được).
+  verifiedBy String
+
+  /// Bộ đếm SDM đọc được ở lần chạm này. NULL khi verifiedBy = "uid_only".
+  sdmCounter Int?
+
+  /// TRUE khi cửa mở bằng danh sách offline lúc mất mạng.
+  degraded Boolean @default(false)
+
+  ipAddress String?
+  userAgent String?
+
+  /// Tín hiệu mở rộng cho hậu kiểm gian lận — cùng tinh thần
+  /// WarehouseCheckIn.validationSignals.
+  signals Json?
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, occurredAt])
+  @@index([cardId, occurredAt])
+  @@index([accessPointId, occurredAt])
+  @@index([userId, occurredAt])
+  @@index([result])
+  @@map("card_tap_events")
+}

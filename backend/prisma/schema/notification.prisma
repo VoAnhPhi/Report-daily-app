@@ -1,0 +1,219 @@
+enum NotificationScope {
+  personal
+  system
+  global
+}
+
+model Notification {
+  id             String  @id @default(uuid())
+  idempotencyKey String? @unique
+  userId         String
+  user           User    @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  scope          NotificationScope  @default(personal)
+  action         NotificationAction
+  relatedModel   RelatedModel?
+  relatedModelId String?
+
+  // Explicit refs for hot paths
+  actorUserId String?
+  actorUser   User?   @relation("ActorUserNotifications", fields: [actorUserId], references: [id])
+
+  postId String?
+  post   Post?   @relation(fields: [postId], references: [id])
+
+  commentId String?
+  comment   Comment? @relation(fields: [commentId], references: [id])
+
+  messageId  String?
+  messageRef Message? @relation("NotificationMessageRef", fields: [messageId], references: [id])
+
+  likeId String?
+  like   Like?   @relation(fields: [likeId], references: [id])
+
+  ratingId String?
+  rating   Rating? @relation(fields: [ratingId], references: [id])
+
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id])
+
+  linkUrl String?
+  message String
+  isRead  Boolean @default(false)
+  payload Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, scope, createdAt])
+  @@index([userId, isRead, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([postId, createdAt])
+  @@index([commentId, createdAt])
+  @@index([messageId, createdAt])
+  @@index([likeId, createdAt])
+  @@index([ratingId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([relatedModel, relatedModelId])
+}
+
+model NotificationCounter {
+  userId     String    @id
+  total      Int       @default(0)
+  unread     Int       @default(0)
+  lastSeenAt DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum RelatedModel {
+  news_item
+  document
+  post
+  user
+  comment
+  system
+  message
+  order
+  like
+  rating
+  half_wallet
+  half_transfer_request
+  half_transfer_manual
+  group_buy
+  training_video
+
+  //Salary (QL Thu Nhập v1.6)
+  salary_disbursement_voucher
+
+  //Báo cáo hằng ngày (daily-report.prisma)
+  daily_report
+}
+
+enum NotificationAction {
+  //KYC Action
+  kyc_submitted
+  kyc_approved
+  kyc_changing
+  kyc_changed
+
+  //User Action
+  direct_referral_registered
+  indirect_referral_registered
+  direct_referral_verified
+  birthday_reminder
+  pending_approval
+
+  //Message Action
+  mentioned
+  message_replied
+
+  created
+  updated
+  deleted
+  liked
+  commented
+  shared
+  viewed
+  downloaded
+  followed
+  unfollowed
+  approved
+  rejected
+  published
+  unpublished
+  system_alert
+
+  //Rating Action
+  rating_replied
+  rating_edited
+
+  //Task Action
+  task_assigned
+  task_due_soon
+  task_overdue
+  task_points_earned
+  task_completed
+  task_status_changed
+  task_commented
+  task_deleted
+  task_restored
+
+  //Gift Order Action
+  gift_recipient_notified
+  gift_card_prepared
+  gift_delivered_to_recipient
+
+  //HALF Wallet Action
+  half_wallet_admin_processing
+  half_wallet_rejected
+  half_transfer_approved
+  half_transfer_rejected
+  half_manual_sent
+
+  // Group Buy Action (Phase 15)
+  group_buy_invite_received
+  group_buy_accepted
+  group_buy_declined
+  // Group Buy lifecycle (Phase 20)
+  group_buy_kicked
+  // Group Buy join (Phase 21)
+  group_buy_joined
+
+  //Training Video Action
+  training_video_completed
+  training_video_available
+  training_video_cooldown_ended // P54 D-10: kích-cầu khi cooldown video ghi đè vừa hết (chỉ overrideCooldown=true)
+
+  //Salary (QL Thu Nhập v1.6) — full lifecycle set provisioned (D-06)
+  salary_voucher_created
+  salary_voucher_accepted
+  salary_voucher_rejected
+  salary_voucher_settled
+
+  //Early-Settlement (P81 D-81-D) — member-facing tiếng Việt notifications (front-load §foundation-provisioning)
+  commission_early_settled
+  commission_early_settle_clawback
+
+  //Commitment Voucher Action (CAMKET-01, Phase 88 — D-88-A)
+  commitment_voucher_created
+  commitment_voucher_accepted
+  commitment_voucher_rejected
+  commitment_voucher_settled
+
+  //MSTL (Minh sứ trưởng lão) auto-qualification — admin broadcast when a user
+  //đủ điều kiện trở thành nhóm trưởng nhưng chưa được công nhận.
+  mstl_eligible_pending
+
+  //Báo cáo hằng ngày (Daily Report)
+  daily_report_ready // Report hôm nay đã sẵn sàng lúc 07:30
+  daily_report_reminder // Nhắc nộp báo cáo trước giờ chốt
+  daily_report_submitted // Thành viên đã nộp (báo cho trưởng nhóm)
+  daily_report_missing // Tổng hợp tiến độ người chưa nộp tại mốc của scope
+  daily_report_reopened // Trưởng nhóm mở lại bản đã nộp
+  daily_report_help_requested // Có người nêu vướng mắc cần hỗ trợ
+  daily_report_help_acknowledged
+  daily_report_help_resolved
+  daily_report_help_cancelled
+  daily_report_accepted // Người duyệt kết luận Đạt
+  daily_report_continued // Đạt, và có việc chuyển sang ngày làm việc kế tiếp
+  daily_report_rejected // Bị trả lại, thành viên phải sửa và nộp lại
+  daily_report_pending_review // Nhắc người duyệt còn báo cáo chưa đọc
+  daily_report_reviewer_assigned // Trưởng nhóm giao duyệt báo cáo của một số thành viên
+
+  //Thù lao giới thiệu cổ đông — người nhận được cộng tiền khi F1/F2 của họ lên
+  //một cấp Cổ đông lan tỏa. Thêm bằng migration riêng (ADD VALUE IF NOT EXISTS).
+  shareholder_referral_rewarded
+}
+
+// Stub models for notification relations (only for models that don't exist elsewhere)
+model Like {
+  id            String         @id @default(cuid())
+  notifications Notification[]
+}
+
+model FileAsset {
+  id      String @id @default(cuid())
+  fileUrl String
+}

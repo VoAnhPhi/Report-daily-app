@@ -1,0 +1,333 @@
+// ==================== VOUCHER SYSTEM SCHEMA (OPTIMIZED) ====================
+
+// Voucher Type - Loại voucher
+enum VoucherType {
+  discount_percentage // Giảm theo phần trăm (VD: 10% tối đa 50K)
+  discount_amount // Giảm theo số tiền cố định (VD: 20K)
+  free_shipping // Miễn phí vận chuyển
+}
+
+// Voucher Category - Phân loại voucher
+enum VoucherCategory {
+  system_voucher // Voucher hệ thống (chỉ dùng 1 cái mỗi lần)
+  points_voucher // Voucher đổi điểm (có thể dùng nhiều cái cùng lúc)
+}
+
+// Voucher Status - Trạng thái voucher
+enum VoucherStatus {
+  draft // Nháp
+  active // Đang hoạt động
+  paused // Tạm dừng
+  expired // Hết hạn
+  cancelled // Đã hủy
+}
+
+// User Voucher Status - Trạng thái voucher của user
+enum UserVoucherStatus {
+  unused // Chưa sử dụng
+  used // Đã sử dụng
+  expired // Hết hạn
+  cancelled // Đã hủy
+}
+
+// Voucher Distribution Method - Phương thức cấp phát
+enum VoucherDistributionMethod {
+  manual // Cấp phát thủ công
+  auto_new_user // Tự động cho user mới
+  auto_first_order // Tự động cho đơn hàng đầu tiên
+  affiliate_commission // Tạo từ affiliate commission
+  event_reward // Phần thưởng sự kiện
+}
+
+// ==================== VOUCHER TEMPLATE (Admin tạo) ====================
+model VoucherTemplate {
+  id          String  @id @default(cuid())
+  code        String  @unique // Mã template (VD: "WELCOME_10P")
+  name        String // Tên voucher
+  description String? // Mô tả
+
+  // Voucher Configuration - Cấu hình voucher
+  type     VoucherType     @default(discount_amount)
+  category VoucherCategory @default(system_voucher) // Phân loại voucher
+
+  // Cho voucher giảm %
+  discountPercentage Decimal? @db.Decimal(5, 2) // Phần trăm giảm (VD: 10.00)
+  maxDiscountAmount  Decimal? @db.Decimal(15, 2) // Giảm tối đa (VD: 50000)
+
+  // Cho voucher giảm số tiền cố định
+  discountAmount Decimal? @db.Decimal(15, 2) // Số tiền giảm (VD: 20000)
+
+  // Cho voucher freeship
+  freeShippingAmount Decimal? @db.Decimal(15, 2) // Số tiền freeship (VD: 30000)
+
+  // Cho voucher cashback
+  cashbackAmount Decimal? @db.Decimal(15, 2) // Số tiền cashback
+  pointsRequired Int? // Điểm cần để đổi
+
+  // Điều kiện sử dụng
+  minOrderAmount Decimal  @db.Decimal(15, 2) // Đơn hàng tối thiểu
+  maxOrderAmount Decimal? @db.Decimal(15, 2) // Đơn hàng tối đa
+
+  // Giới hạn theo danh mục/sản phẩm (tùy chọn)
+  isCategoryLimited Boolean  @default(false) // Có giới hạn danh mục
+  categoryIds       String[] // Danh mục áp dụng
+  isProductLimited  Boolean  @default(false) // Có giới hạn sản phẩm
+  productIds        String[] // Sản phẩm áp dụng
+  isBrandLimited    Boolean  @default(false) // Có giới hạn thương hiệu
+  brandIds          String[] // Thương hiệu áp dụng
+
+  // Cấu hình cấp phát
+  distributionMethod VoucherDistributionMethod @default(manual)
+  totalQuantity      Int // Tổng số lượng có thể cấp phát
+  issuedQuantity     Int                       @default(0) // Số lượng đã cấp phát
+  maxPerUser         Int                       @default(1) // Tối đa mỗi user
+  batchSize          Int                       @default(1) // Số lượng voucher cấp phát mỗi lần (VD: 5, 10)
+  maxBatchesPerUser  Int? // Số batch tối đa mỗi user có thể nhận (null = không giới hạn)
+
+  // Thời gian hiệu lực
+  validFrom       DateTime // Có hiệu lực từ
+  validTo         DateTime // Có hiệu lực đến
+  usageExpiryDays Int? // Hết hạn sau X ngày kể từ khi nhận
+
+  // Cấu hình sử dụng
+  isStackable Boolean @default(true) // Có thể dùng chung với voucher khác
+  isPublic    Boolean @default(false) // Công khai cho user nhận
+  isActive    Boolean @default(true) // Đang hoạt động
+
+  // Quy tắc sử dụng theo category
+  // SYSTEM_VOUCHER: Chỉ dùng 1 cái mỗi lần
+  // POINTS_VOUCHER: Có thể dùng nhiều cái cùng lúc
+
+  // Admin tạo
+  createdById String
+  createdBy   User   @relation("VoucherTemplateCreatedBy", fields: [createdById], references: [id])
+
+  // Special field for admin_voucher_gvc role filtering
+  gvcAccessCode String? // Special code to identify vouchers accessible by admin_voucher_gvc role
+
+  // === DIADIEM EXTENSION (additive) ===
+
+  // Gắn offer với điểm cầu / doanh nghiệp cụ thể
+  businessId  String? // FK tới Business
+  // Điểm cầu (kho) được áp ưu đãi. null = ưu đãi không neo vào một điểm cụ thể.
+  // ⚠ Trước 07/09/2026 cột này trỏ sang bảng "địa điểm kinh doanh" (đã xoá).
+  warehouseId String?
+
+  // Điều kiện entitlement (mảng code — VD: ["illuminator", "luminary"])
+  // Empty array = công khai cho mọi user
+  entitlementCodes String[]
+
+  // Loại offer
+  offerKind OfferKind?
+
+  // Hiển thị badge trong UI
+  // VD: { text: "Chỉ dành cho Người Sáng", color: "#F59E0B", icon: "star" }
+  displayBadge Json?
+
+  // Điều khoản sử dụng offer (markdown)
+  offerTerms String? @db.Text
+
+  // Phụ đề hiển thị dưới tên offer
+  subtitleText String?
+
+  // Ưu đãi chỉ để hiển thị (không có giá trị giảm giá thực — dùng cho privilege display)
+  isDisplayOnlyPrivilege Boolean @default(false)
+
+  // Approval workflow cho offer
+  approvalState    OfferApprovalState @default(draft)
+  approvedByUserId String?
+  approvedAt       DateTime?
+
+  // Diadiem relations
+  business       Business?  @relation("BusinessOffers", fields: [businessId], references: [id], onDelete: SetNull)
+  warehouse      Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  approvedByUser User?      @relation("VoucherTemplateApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  /// Báo cáo vi phạm nhắm vào chính ưu đãi này (`WarehouseViolationReport.offerTemplateId`).
+  violationReports WarehouseViolationReport[] @relation("VoucherTemplateViolationReports")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userVouchers       UserVoucher[]              @relation("VoucherTemplateVouchers")
+  redemptions        VoucherRedemption[]        @relation("VoucherTemplateRedemptions")
+  affiliateCreations AffiliateVoucherCreation[] @relation("VoucherTemplateAffiliateCreations")
+  voucherReviews     VoucherReview[]
+
+  @@index([code])
+  @@index([type])
+  @@index([isActive])
+  @@index([validFrom])
+  @@index([validTo])
+  @@index([createdById])
+  @@index([gvcAccessCode])
+  @@index([businessId, isActive])
+  @@index([warehouseId, isActive])
+  @@index([businessId, validFrom, validTo])
+  @@index([approvalState])
+  @@map("voucher_templates")
+}
+
+// Loại offer diadiem
+enum OfferKind {
+  discount_pct // Giảm theo phần trăm
+  discount_amount // Giảm theo số tiền cố định
+  bundle_buy_x_get_y // Mua X tặng Y
+  gift // Quà tặng
+  privilege_display_only // Quyền lợi hiển thị (không có giá trị tiền)
+  image_backed_offer // Offer được thể hiện bằng hình ảnh
+  role_only_privilege // Quyền lợi theo vai trò (role-based)
+}
+
+// Trạng thái phê duyệt offer
+enum OfferApprovalState {
+  draft // Bản nháp
+  pending // Đang chờ duyệt
+  approved // Đã phê duyệt
+  rejected // Bị từ chối
+  paused // Tạm dừng
+  expired // Hết hạn
+}
+
+// ==================== USER VOUCHER (Voucher của user) ====================
+model UserVoucher {
+  id   String @id @default(cuid())
+  code String @unique // Mã voucher instance (VD: "WELCOME_10P_ABC123")
+
+  // Template Reference
+  voucherTemplateId String
+  voucherTemplate   VoucherTemplate @relation("VoucherTemplateVouchers", fields: [voucherTemplateId], references: [id])
+
+  // User Ownership
+  userId String
+  user   User   @relation("UserVouchers", fields: [userId], references: [id])
+
+  // Voucher Configuration (Snapshot từ template)
+  type               VoucherType
+  category           VoucherCategory // Phân loại voucher
+  discountPercentage Decimal?        @db.Decimal(5, 2)
+  maxDiscountAmount  Decimal?        @db.Decimal(15, 2)
+  discountAmount     Decimal?        @db.Decimal(15, 2)
+  freeShippingAmount Decimal?        @db.Decimal(15, 2)
+  cashbackAmount     Decimal?        @db.Decimal(15, 2)
+  pointsRequired     Int?
+
+  // Điều kiện sử dụng (Snapshot từ template)
+  minOrderAmount    Decimal  @db.Decimal(15, 2)
+  maxOrderAmount    Decimal? @db.Decimal(15, 2)
+  isCategoryLimited Boolean
+  categoryIds       String[]
+  isProductLimited  Boolean
+  productIds        String[]
+  isBrandLimited    Boolean
+  brandIds          String[]
+
+  // Thời gian hiệu lực
+  validFrom DateTime
+  validTo   DateTime
+
+  // Trạng thái và sử dụng
+  status     UserVoucherStatus @default(unused)
+  lastUsedAt DateTime? // Thời điểm sử dụng gần nhất
+
+  // Giới hạn sử dụng
+  maxUsageCount Int @default(1) // Số lần sử dụng tối đa (từ template.maxPerUser)
+  usedCount     Int @default(0) // Số lần đã sử dụng
+
+  // Lịch sử sử dụng
+  usageHistory VoucherUsageHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([voucherTemplateId])
+  @@index([status])
+  @@index([validFrom])
+  @@index([validTo])
+  @@map("user_vouchers")
+}
+
+// ==================== VOUCHER USAGE HISTORY ====================
+model VoucherUsageHistory {
+  id            String      @id @default(cuid())
+  userVoucherId String
+  userVoucher   UserVoucher @relation(fields: [userVoucherId], references: [id])
+
+  // Thông tin sử dụng
+  orderId String
+  order   Order  @relation("VoucherUsageInOrder", fields: [orderId], references: [id])
+
+  // Chi tiết giảm giá
+  originalAmount Decimal @db.Decimal(15, 2) // Số tiền gốc
+  discountAmount Decimal @db.Decimal(15, 2) // Số tiền giảm
+  finalAmount    Decimal @db.Decimal(15, 2) // Số tiền cuối
+
+  // Thông tin sử dụng
+  usedAt DateTime @default(now())
+  usedBy String // User ID
+  notes  String? // Ghi chú
+  status String   @default("used") // used, refunded
+
+  createdAt DateTime @default(now())
+
+  @@unique([userVoucherId, orderId])
+  @@index([userVoucherId])
+  @@index([orderId])
+  @@index([usedAt])
+  @@map("voucher_usage_history")
+}
+
+// ==================== USER VOUCHER WALLET ====================
+model UserVoucherWallet {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation("UserVoucherWallet", fields: [userId], references: [id])
+
+  // Thống kê voucher
+  totalVouchers   Int @default(0) // Tổng số voucher
+  unusedVouchers  Int @default(0) // Số voucher chưa dùng
+  usedVouchers    Int @default(0) // Số voucher đã dùng
+  expiredVouchers Int @default(0) // Số voucher hết hạn
+
+  // Thống kê giá trị
+  totalValue     Decimal @default(0) @db.Decimal(15, 2) // Tổng giá trị
+  usedValue      Decimal @default(0) @db.Decimal(15, 2) // Giá trị đã dùng
+  availableValue Decimal @default(0) @db.Decimal(15, 2) // Giá trị còn lại
+
+  // Cập nhật cuối
+  lastUpdatedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("user_voucher_wallets")
+}
+
+// ==================== VOUCHER REDEMPTION (Đổi voucher bằng điểm) ====================
+model VoucherRedemption {
+  id                String          @id @default(cuid())
+  userId            String
+  user              User            @relation("UserVoucherRedemptions", fields: [userId], references: [id])
+  // Thông tin đổi
+  voucherTemplateId String
+  voucherTemplate   VoucherTemplate @relation("VoucherTemplateRedemptions", fields: [voucherTemplateId], references: [id])
+
+  // Chi tiết đổi
+  pointsUsed      Int // Điểm đã sử dụng
+  voucherReceived String? // Mã voucher nhận được
+
+  // Trạng thái
+  status      String    @default("pending")
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([voucherTemplateId])
+  @@index([status])
+  @@map("voucher_redemptions")
+}

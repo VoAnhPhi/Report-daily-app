@@ -1,0 +1,472 @@
+// ==================== QL THU NHẬP / CHÍNH SÁCH MINH SỨ TRƯỞNG LÃO (v1.6 Phase 80) ====================
+// Domain: Salary Disbursement (phiếu cấp phát thu nhập). Schema-only foundation — ZERO business logic.
+// Behavior (WalletResetService, offset/payout math, accept/settle, cron guard, notification emit) lands
+// in Phases 81–86. Phase 80 only PROVISIONS the columns/enums/relations behind WALLET-01..06 / VOUCHER-06/08 / NOTIF-01.
+//
+// v6-safe (lowest-common-denominator) syntax ONLY — acta-api runs Prisma 6.17 (prisma-client-js),
+// acta-prisma-contracts runs Prisma 7.8; this file is byte-identical in both (D-08) so it must parse
+// under the older major. NEVER use the Prisma-7 `where:` partial-index attribute — the settled
+// partial-unique is expressed as a schema COMMENT here and lives as raw DDL in the Plan 03 migration.
+// All money fields are Decimal @db.Decimal(15, 2) (D-01) — never Int, never Decimal(18,2).
+
+enum SalaryPolicyType {
+  elder
+  hai_loc // PROVISIONAL (D-07) — v2 placeholder "Hái lộc cùng ACTA" (HAILOC-01); name/semantics NOT final, NOT wired to behavior in v1.6.
+  commitment // PROVISIONAL (D-07) — v2 placeholder "Cam kết thu nhập cùng ACTA" (CAMKET-01); name/semantics NOT final, NOT wired to behavior in v1.6.
+}
+
+enum SalaryDisbursementMode {
+  offset
+  payout
+}
+
+enum SalarySettlementSource {
+  commission
+  training
+}
+
+// Cấp phát thu nhập (2026-07-23, spec cap-phat-thu-nhap D1) — nguồn gốc phiếu: trang chính sách kỳ
+// (MSTL/commitment, đời cũ — default) vs trang admin "Cấp phát thu nhập" (allocation). Phiếu allocation
+// hưởng trọn vòng đời TTL 7 ngày / cron hết hạn / nhắc T-3 / audit events sẵn có; khác biệt hành vi
+// (không periodYear/periodMonth, reset theo phạm vi resetAnchorAt, nhãn "Cấp bù") rẽ nhánh theo cột này.
+// Không @@map (tiền lệ enum trong file); value snake_case bare identifier. Byte-identical trong contracts.
+enum SalaryVoucherOrigin {
+  policy_page
+  allocation
+}
+
+enum SalaryVoucherStatus {
+  created
+  accepted
+  rejected
+  settled
+  expired
+}
+
+enum VoucherActorType {
+  admin
+  user
+  system
+}
+
+enum AdvanceDebtEntryType {
+  advance_topup
+  repayment
+}
+
+// Phase 88 D-88-G: lifecycle status of a CTV Mở Rộng (CAMKET-01) enrollment stint.
+enum CommitmentEnrollmentStatus {
+  active
+  paused // PROVISIONED (D-88-G) — not read/written until Phase 94; reserved for a future pause flow.
+  ended
+}
+
+// Phase 106 D-CM2-07: lifecycle status of a member-submitted enrollment request (CAMKET-02).
+enum CommitmentEnrollmentRequestStatus {
+  pending
+  accepted
+  rejected
+}
+
+// Loại thao tác admin ghi vào nhật ký CommitmentAdminAction (append-only audit — ai làm gì với CTV).
+// Không @@map (theo tiền lệ enum trong file — CommitmentEnrollmentStatus / …RequestStatus đều không map);
+// value snake_case bare identifier. Byte-identical trong acta-prisma-contracts.
+enum CommitmentAdminActionType {
+  enroll
+  accept_request
+  reject_request
+  pause
+  resume
+  end
+  issue_voucher
+  mark_seen
+}
+
+// Phase 113 (REV-6 D-R6-08) — bộ mail đường Khởi nghiệp cùng ACTA (P0 + P1 + P2). MỘT giá trị = MỘT loại mail;
+// đây là khoá chống trùng của `CommitmentEmailSendLog` VÀ là đơn vị đếm của trần tần suất. Không @@map
+// (theo tiền lệ enum trong file); value snake_case bare identifier. Byte-identical trong acta-prisma-contracts.
+// Thêm loại mail mới = thêm value vào đây (ALTER TYPE … ADD VALUE IF NOT EXISTS), KHÔNG tái dùng value cũ.
+enum CommitmentEmailType {
+  // --- P0 (lỗi đang có: đường mint KHÔNG hề gọi notify → member không nhận gì khi được phát phiếu) ---
+  voucher_created // phiếu cam kết vừa phát (notifyCommitmentCreated)
+  voucher_expiry_warning // nhắc T-3 trước khi phiếu hết hạn (TTL 7 ngày)
+
+  // --- D-R6-07 + P1 (chốt kỳ / danh hiệu) ---
+  cycle_recap // tổng kết kỳ vừa đóng: đạt/trượt + số liệu tiêu chí
+  tvtc_awarded_self // chúc mừng CHÍNH người vừa đạt TVTC
+  tvtc_awarded_upline // báo tuyến trên khi tuyến dưới thành TVTC
+
+  // --- P2 (giữ nhịp trong kỳ / vòng đời ghi danh) ---
+  progress_nudge // nhắc tiến độ giữa kỳ
+  near_miss_warning // cảnh báo sắp trượt mốc (đọc tierResults[1] cho Mốc 2, KHÔNG đọc khối criteria)
+  enrollment_paused // admin tạm dừng (hiện im lặng hoàn toàn)
+  enrollment_resumed // admin mở lại
+  advance_debt_statement // sao kê dư nợ tạm ứng
+  enrollment_invite // mời kết nạp (gửi cho người CHƯA ghi danh — không gắn kỳ)
+  re_engagement // kéo lại member đã nguội (không gắn kỳ)
+}
+
+// State-machine root of a salary disbursement voucher (created → accepted → settled | rejected).
+// Mirrors the brand-review.prisma status@default idiom. The exactly-once double-settle guard is the
+// raw partial-unique index (VOUCHER-06) — see the @@map comment; behavioral enforcement is Phase 83.
+model SalaryDisbursementVoucher {
+  id                        String                 @id @default(cuid())
+  userId                    String
+  policyType                SalaryPolicyType
+  periodYear                Int // composite period (D-05) — NOT periodKey String
+  periodMonth               Int
+  mode                      SalaryDisbursementMode
+  settlementSource          SalarySettlementSource
+  commissionBalanceSnapshot Decimal                @db.Decimal(15, 2)
+  trainingBalanceSnapshot   Decimal                @db.Decimal(15, 2)
+  settlementBase            Decimal                @db.Decimal(15, 2)
+  disbursementAmount        Decimal                @db.Decimal(15, 2)
+  advanceOffsetAmount       Decimal                @db.Decimal(15, 2)
+  netCreditAmount           Decimal                @db.Decimal(15, 2)
+  status                    SalaryVoucherStatus    @default(created)
+  rejectReason              String?
+  createdById               String
+  acceptedAt                DateTime?
+  rejectedAt                DateTime?
+  settledAt                 DateTime?
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+
+  // Phase 88 (CAMKET-01) — additive commitment-policy columns; NULL/unused for elder rows (D-88-B/D-88-G/D-88-E-3).
+  milestoneTier         Int? // 1/2/3 — maps into MILESTONE_TIERS (D-88-G); elder rows leave this null
+  cycleStartAt          DateTime? // rolling-30-day cycle window start; derived Phase 89 (CYCLE-01)
+  cycleEndAt            DateTime? // rolling-30-day cycle window end; derived Phase 89 (CYCLE-01)
+  cycleIndex            Int? // 0-based rolling-cycle counter, exactly-once key (D-88-B); derived Phase 89
+  qualificationSnapshot Json? // shape defined Phase 90 (QUAL-01/02) — schemaless, 0-migration
+  enrollmentId          String?
+  enrollment            CommitmentEnrollment? @relation(fields: [enrollmentId], references: [id]) // D-88-E-3
+
+  // Phase 111 (D-06): TTL 7 ngày — null = phiếu đời cũ (không backfill; cron expiry giữ nhánh legacy cho null).
+  expiresAt      DateTime? // = createdAt + SALARY_VOUCHER_TTL_MS, set lúc tạo phiếu status created (D-V7-01)
+  expiryWarnedAt DateTime? // dedup nhắc T-3 (D-V7-06) — set khi cron warning đã nhắc, thay marker chuỗi
+
+  // Cấp phát thu nhập (2026-07-23, spec cap-phat-thu-nhap D1/D2) — additive; mọi phiếu đời cũ giữ default.
+  origin        SalaryVoucherOrigin @default(policy_page) // allocation = phiếu từ trang "Cấp phát thu nhập"
+  resetAnchorAt DateTime? // D2 — phạm vi reset: NULL = "từ trước đến nay"; non-null = chỉ reset thu nhập
+  // ghi nhận <= mốc này (validate service-layer theo giờ VN: quá khứ, ngày ∈ {5,10,15,20,25}, phút ∈ {0,30},
+  // lùi tối đa 3 tháng lịch). CHỈ có nghĩa khi origin = allocation; phiếu policy_page luôn NULL.
+
+  documents      Attachment[]                     @relation("SalaryVoucherDocuments") // D-03 — opposite side (Attachment.salaryVoucherId) added in Plan 02
+  events         SalaryDisbursementVoucherEvent[]
+  advanceEntries AdvanceDebtLedger[]
+
+  @@index([userId, status])
+  @@index([periodYear, periodMonth])
+  @@index([origin]) // Cấp phát thu nhập 2026-07-23 — list/cron lọc riêng phiếu allocation vs phiếu kỳ
+  // Phase 80 VOUCHER-06 (narrowed Phase 92): a partial UNIQUE index `uq_salary_voucher_settled_period`
+  //   ON ("userId","policyType","periodYear","periodMonth") WHERE status='settled' AND "cycleIndex" IS NULL
+  //   is maintained via raw SQL — predicate narrowed to ELDER-only by migration
+  //   20260708000000_92_fix_elder_period_index_exclude_commitment (D-92-DEFER-01 fix). Prisma 6 cannot
+  //   express WHERE-filtered uniques. Do NOT convert to a Prisma-7 `where:` attribute; do NOT remove.
+  // Phase 88 D-88-B: a SECOND partial UNIQUE index `uq_commitment_voucher_settled_cycle`
+  //   ON ("userId","policyType","cycleIndex") WHERE status='settled' AND "cycleIndex" IS NOT NULL
+  //   is maintained via raw SQL (Plan 03 migration, phase 88) — the `cycleIndex IS NOT NULL`
+  //   predicate excludes all elder rows (they never set cycleIndex); symmetrically the period index
+  //   above now excludes all commitment rows (`cycleIndex IS NULL`), so the two indexes are disjoint.
+  //   Do NOT convert to a Prisma-7 `where:` attribute; do NOT remove.
+  @@map("salary_disbursement_vouchers")
+}
+
+// Append-only per-transition audit (§22 / D-04). Written once at EACH status transition and NEVER
+// updated/deleted in later write paths — the tamper-evidence money trail. `snapshot` captures the full
+// point-in-time before/after money state (commissionBalance, trainingBalance, pendingBalance,
+// advanceDebtBalance, personalCommissionKept, disbursementAmount, advanceOffsetAmount, netCreditAmount,
+// mode, settlementSource) so the before→after modal + disputes can be reconstructed forever (no backfill).
+model SalaryDisbursementVoucherEvent {
+  id         String                    @id @default(cuid())
+  voucherId  String
+  fromStatus SalaryVoucherStatus?
+  toStatus   SalaryVoucherStatus
+  actorId    String
+  actorType  VoucherActorType
+  snapshot   Json // D-04 full snapshot (§22 point-in-time)
+  reason     String?
+  createdAt  DateTime                  @default(now())
+  voucher    SalaryDisbursementVoucher @relation(fields: [voucherId], references: [id])
+
+  @@index([voucherId, createdAt])
+  @@map("salary_disbursement_voucher_events")
+}
+
+// Append-only advance-debt ledger with running balance (WALLET-05). `amount` is always positive;
+// `balanceAfter` is the running balance so the reconciliation invariant advanceDebtBalance == Σ(ledger)
+// holds. Append-only — corrections are compensating entries (advance_topup / repayment), never edits.
+model AdvanceDebtLedger {
+  id           String                     @id @default(cuid())
+  userId       String
+  voucherId    String?
+  policyType   SalaryPolicyType           @default(elder) // Phase 88 D-88-E-1 — scope ledger rows per policy (elder vs commitment) without joining voucher
+  type         AdvanceDebtEntryType
+  amount       Decimal                    @db.Decimal(15, 2) // always positive
+  balanceAfter Decimal                    @db.Decimal(15, 2) // running balance → reconciliation (D-01)
+  note         String?
+  createdAt    DateTime                   @default(now())
+  voucher      SalaryDisbursementVoucher? @relation(fields: [voucherId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([userId, policyType, createdAt]) // Phase 88 D-88-E-1 — additive, keeps the index above
+  @@map("advance_debt_ledgers")
+}
+
+// Phase 88 (CAMKET-01) — admin enrollment record for CTV Mở Rộng. `enrolledAt` is the rolling-30-day
+// cycle anchor per member (D-88-D). Re-enrollment after `ended` creates a NEW row (fresh anchor, fresh
+// trial cycles) rather than reusing the old row — old rows stay `ended` as audit history.
+model CommitmentEnrollment {
+  id                       String                     @id @default(cuid())
+  userId                   String // bare scalar FK — no User relation, matches voucher/ledger precedent
+  enrolledById             String // admin who enrolled — bare scalar, matches voucher.createdById
+  enrolledAt               DateTime // rolling-30-day cycle anchor (D-88-D)
+  status                   CommitmentEnrollmentStatus @default(active)
+  note                     String?
+  lastReconciledCycleIndex Int? // Phase 92 cron progress marker (D-88-E-2)
+  endedAt                  DateTime? // lifecycle audit (D-88-E-2 / D-88-D)
+  pausedAt                 DateTime? // lifecycle audit (D-88-E-2)
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  vouchers SalaryDisbursementVoucher[] // D-88-E-3
+
+  @@index([userId, status])
+  // Phase 88 D-88-C: a partial UNIQUE index `uq_commitment_enrollment_active`
+  //   ON ("userId") WHERE status='active'
+  //   is maintained via raw SQL (Plan 03 migration, phase 88) — Prisma 6 cannot express WHERE-filtered
+  //   uniques. Do NOT convert to a plain `@@unique([userId])` — multiple `ended` history rows plus
+  //   exactly one `active` row per member are allowed by design (D-88-D); do NOT convert to a
+  //   Prisma-7 `where:` attribute; do NOT remove.
+  @@map("commitment_enrollments")
+}
+
+// Phase 106 (CAMKET-02) — member-submitted enrollment request for CTV Mở Rộng (D-CM2-07).
+// Persists the request so admins see the submission date (requestedAt); the "1 pending request per
+// user" rule is DB-enforced (partial unique below) replacing the old Redis cooldown key. The 72h
+// re-request window across ALL statuses stays a service-layer check (Plan 106-04).
+model CommitmentEnrollmentRequest {
+  id                String                            @id @default(cuid())
+  userId            String // bare scalar FK — no User relation, matches CommitmentEnrollment precedent
+  requestedAt       DateTime                          @default(now())
+  status            CommitmentEnrollmentRequestStatus @default(pending)
+  resolvedAt        DateTime?
+  resolvedById      String? // admin who resolved — bare scalar, §28 provenance (value only from @CurrentUser)
+  note              String? // reject reason / admin note
+  enrollmentId      String? // bare scalar link to CommitmentEnrollment.id set on accept — deliberately NOT a
+  // relation/FK: kept bare-scalar for consistency with the userId precedent (D-88 voucher/ledger style).
+  // Phase 115 (Tra cứu thu nhập, 2026-07-22) — provenance "gửi hộ" (kết nạp hộ):
+  //   requestedById   = users.id của NGƯỜI GỬI khi yêu cầu được gửi HỘ (admin/babysitter/
+  //                     người giới thiệu qua trang Tra cứu thu nhập); NULL = chính chủ tự gửi
+  //                     (mọi hàng legacy đều NULL — không backfill). Bare scalar, §28: giá trị
+  //                     CHỈ từ @CurrentUser, không bao giờ từ payload client.
+  //   requestedBySource = 'self' | 'admin' | 'babysitter' | 'referrer' — server TỰ suy từ quan
+  //                     hệ thực tế lúc gửi (role admin / Baby approved-active / closure depth 1-2),
+  //                     KHÔNG tin client. String thường (không enum) để migration idempotent
+  //                     không cần CREATE TYPE; tập giá trị được ràng ở service layer.
+  requestedById     String?
+  requestedBySource String?
+  createdAt         DateTime                          @default(now())
+  updatedAt         DateTime                          @updatedAt
+
+  @@index([userId, status])
+  @@index([status, requestedAt])
+  // Phase 106 D-CM2-07 (khuôn D-88-C): a partial UNIQUE index `uq_commitment_enrollment_request_pending`
+  //   ON ("userId") WHERE status='pending'
+  //   is maintained via raw SQL (migration 20260714000000_106_commitment_enrollment_request) — Prisma 6
+  //   cannot express WHERE-filtered uniques. Do NOT convert to a plain `@@unique([userId])` — multiple
+  //   accepted/rejected history rows plus at most one `pending` row per member are allowed by design;
+  //   do NOT convert to a Prisma-7 `where:` attribute; do NOT remove.
+  @@map("commitment_enrollment_requests")
+}
+
+// Phase 112 (REV-4 TVTC) — lifetime TVTC award, 1-once, never re-evaluated / never revoked (D-CM2-20 / §0quater-A).
+// Bare-scalar userId (NO User relation — matches enrollment/voucher/ledger precedent); the @unique makes the
+// badge permanently one-per-user. NO status column (the award is permanent). criteriaSnapshot is the §22
+// immutable proof of criteria (a)(b)(c) at the award instant. Byte-identical in acta-prisma-contracts.
+model CommitmentTvtcBadge {
+  id               String   @id @default(cuid())
+  userId           String   @unique // bare scalar FK, 1-once lifetime (no status — permanent)
+  awardedAt        DateTime // VN-day the 3 criteria (a)(b)(c) first all met (server-computed by nightly cron)
+  awardCycleUpline String? // first upline/cycle that recorded it (§0quater-A "ghi nhận cho tuyến trên")
+  criteriaSnapshot Json? // §22 immutable proof of (a)(b)(c) at award instant
+  createdAt        DateTime @default(now())
+
+  @@map("commitment_tvtc_badges")
+}
+
+// Phase 112 (REV-4 TVTC) — append-only mốc-chuyển-active log (D-112-01 QĐ-B). UserIdentity.verifiedAt fires
+// 1-once-lifetime so it misses dormant reactivation; this table records a row per status→active transition
+// (KYC-đầu + reactivation). Append-only — one transition = one row, never updated/deleted (§22 tamper trail).
+model UserActiveTransition {
+  id             String   @id @default(cuid())
+  userId         String // bare scalar FK — no User relation
+  transitionedAt DateTime @default(now()) // VN-day boundary compared against upline cycle window
+  source         String // 'kyc_first' | 'reactivation' | 'admin' — provenance
+  actorId        String? // admin who approved (§28 — value only from @CurrentUser)
+  createdAt      DateTime @default(now())
+
+  @@index([userId, transitionedAt])
+  @@map("user_active_transitions")
+}
+
+// Phase 112 (REV-4 TVTC) — per-person per-cycle eligibility snapshot (D-CM2-24 / §0quater-H). The reconcile
+// cron stops minting vouchers and instead computes+locks this immutable snapshot (§22) at cycle close; admin
+// then creates the disbursement voucher and links it via voucherId. seenByAdminAt tracks the seen/unseen
+// blink. The one-row-per-cycle guard `uq_commitment_cycle_eligibility_person_cycle` (userId, cycleIndex) is
+// a raw UNIQUE INDEX in the migration (Prisma 6 cannot express WHERE-filtered/scoped uniques via `where:`).
+model CommitmentCycleEligibility {
+  id              String    @id @default(cuid())
+  userId          String // bare scalar FK — no User relation
+  cycleIndex      Int
+  cycleStartAt    DateTime
+  cycleEndAt      DateTime
+  enrolledAt      DateTime
+  awardedTier     Int? // 1 | 2 | null=fail
+  floorVnd        Decimal?  @db.Decimal(15, 2) // server floor at cycle close
+  criteriaVersion Int
+  snapshot        Json // §22 immutable eligibility proof (incl. TVTC-có-mua contributor list)
+  seenByAdminAt   DateTime? // seen/unseen blink tracking (admin list)
+  voucherId       String? // linked when admin creates the disbursement voucher
+  createdAt       DateTime  @default(now())
+
+  // Phase 113 (REV-6 D-R6-07): dedup mail tổng kết kỳ — set khi cron recap ĐÃ gửi mail cho hàng này.
+  // Cùng khuôn single-purpose với `SalaryDisbursementVoucher.expiryWarnedAt` (:112): một cột thời điểm,
+  // KHÔNG phải marker chuỗi. Cron recap quét HÀNG NGÀY (không phải @Cron theo ngày-trong-tháng) và chọn
+  // các kỳ vừa đóng có `recapSentAt IS NULL` → mọi lần chạy lại (redeploy / lock hết hạn / gọi tay)
+  // là no-op thay vì mail lại toàn bộ dân số ghi danh. NULL = kỳ đời cũ hoặc chưa gửi (KHÔNG backfill).
+  recapSentAt DateTime?
+
+  @@index([userId, cycleIndex])
+  @@map("commitment_cycle_eligibilities")
+}
+
+// Nhật ký thao tác admin trên CTV Khởi nghiệp cùng ACTA (append-only audit, §22 tamper trail). Ghi một
+// hàng mỗi thao tác admin (kết nạp / duyệt / từ chối / tạm ngưng / tiếp tục / kết thúc / phát phiếu / đánh
+// dấu đã xem): ai làm gì với CTV nào, khi nào. Bare-scalar `actorId`/`targetUserId` (KHÔNG User relation —
+// theo tiền lệ enrollment/voucher/ledger); một thao tác = một hàng, không bao giờ cập nhật/xoá. `businessId`
+// suy từ JWT (§28), không tin payload. Byte-identical trong acta-prisma-contracts.
+model CommitmentAdminAction {
+  id           String                    @id @default(cuid())
+  businessId   String
+  actorId      String // admin thao tác (§28 — giá trị chỉ từ @CurrentUser)
+  targetUserId String // CTV bị tác động
+  enrollmentId String?
+  action       CommitmentAdminActionType
+  note         String?
+  metadata     Json?
+  createdAt    DateTime                  @default(now())
+
+  @@index([targetUserId, createdAt])
+  @@index([businessId])
+  @@map("commitment_admin_actions")
+}
+
+// Phase 113 (REV-6 D-R6-08) — sổ "đã gửi mail X cho user Y ở kỳ N" cho TOÀN BỘ đường Khởi nghiệp cùng ACTA.
+// Bare-scalar `userId` (KHÔNG User relation — theo tiền lệ enrollment/voucher/ledger). Một lần gửi = một hàng;
+// GẦN-như-append-only (đúng hai lệnh ghi-sau-chèn của giao thức claim-then-send ở (1) dưới đây được phép).
+// Sổ này gánh HAI việc rời nhau, đừng trộn:
+//
+//   (1) CHỐNG TRÙNG — unique [userId, emailType, cycleIndex], theo giao thức GIÀNH-CHỖ-RỒI-GỬI
+//       (claim-then-send) của `CommitmentEmailSenderService`. ⚠ KHÔNG phải "ghi hàng trong CÙNG
+//       transaction với lần gửi" — Resend là lời gọi HTTP NGOÀI Postgres, KHÔNG thể nằm trong một
+//       transaction; giữ tx mở suốt lời gọi mạng còn khoá kết nối pgbouncer. Giao thức THẬT:
+//         B1. INSERT hàng này TRƯỚC (giành chỗ). P2002/23505 = ai đó đã giành → benign-skip, KHÔNG gửi
+//             (cùng khuôn benign-skip của `uq_commitment_cycle_eligibility_person_cycle`).
+//         B2. Gọi Resend NGOÀI mọi transaction.
+//         B3. Gửi OK → UPDATE `sentAt` = thời điểm gửi thật + `providerMessageId`.
+//             Gửi HỎNG → XOÁ hàng vừa giành (bồi hoàn) để lần chạy sau gửi lại được.
+//       Vì thế `status` không cần cột riêng: hàng TỒN TẠI ⇒ đã (hoặc đang) gửi; gửi hỏng ⇒ hàng biến mất.
+//       ⚠ Điều này làm bảng KHÔNG còn thuần append-only: đúng HAI ghi-sau-chèn ở trên là hợp lệ
+//       (xác nhận gửi, bồi hoàn khi hỏng) — mọi UPDATE/DELETE khác vẫn cấm.
+//       ⚠ Nếu tiến trình chết GIỮA B2 và B3 thì hàng ở lại mà mail có thể chưa tới: chọn có chủ ý —
+//       thà thiếu MỘT mail còn hơn gửi trùng cho member (xem `CommitmentEmailSenderService`).
+//
+//   (2) TRẦN TẦN SUẤT — đếm hàng theo cửa sổ TRƯỢT trên MỌI emailType của một user:
+//         SELECT count(*) FROM commitment_email_send_logs WHERE "userId" = $1 AND "sentAt" >= $2
+//       Vì thế index là ("userId", "sentAt") — cột dẫn lọc bằng, cột sau quét khoảng → index range scan,
+//       KHÔNG đụng bảng. Đừng đảo thứ tự và đừng thêm emailType vào index này: trần là con số CỘNG GỘP
+//       mọi loại mail (member chỉ cảm nhận tổng số mail nhận được, không phân biệt loại).
+//
+// ⚠⚠ CẠM BẪY THIẾT KẾ ĐÃ TRÁNH (D-R6-08, ghi lại để không ai "sửa" ngược):
+//   `cycleIndex` PHẢI `Int` NOT NULL với SENTINEL `-1`, TUYỆT ĐỐI KHÔNG `Int?` nullable.
+//   Postgres coi mỗi NULL là MỘT giá trị KHÁC NHAU trong unique index → `@@unique([userId, emailType, cycleIndex])`
+//   với cycleIndex nullable sẽ KHÔNG chặn được gì cho đúng nhóm mail không-gắn-kỳ (`enrollment_invite`,
+//   `re_engagement`): mỗi lần cron chạy lại chèn thêm một hàng NULL mới và mail gửi VÔ HẠN — đúng cái ca
+//   mà sổ này sinh ra để chặn. Sentinel `-1` là một giá trị THẬT nên unique mới cắn.
+//   Quy ước giá trị:
+//     • `cycleIndex >= 0` → gắn đúng kỳ đó (`CommitmentCycleEligibility.cycleIndex`) → gửi ĐÚNG MỘT LẦN mỗi kỳ.
+//     • `cycleIndex == -1` → không gắn kỳ → gửi ĐÚNG MỘT LẦN TRỌN ĐỜI cho user đó (chủ ý: mời kết nạp mà
+//       gửi lại nhiều lần là spam người chưa ghi danh).
+//     • Mail không-gắn-kỳ nhưng CẦN lặp theo chu kỳ thì mã hoá số hiệu cửa sổ thành sentinel âm riêng
+//       (`-1 - <số thứ tự cửa sổ>`, ví dụ tuần thứ k → `-1 - k`) — vẫn NOT NULL, vẫn bị unique chặn trong
+//       từng cửa sổ. KHÔNG BAO GIỜ quay lại dùng NULL để "cho phép gửi lại".
+//
+// ⚠⚠ VA CHẠM SENTINEL (D-R6-08, phát hiện REV-6). Không gian sentinel âm KHÔNG rời khỏi không gian
+//   `cycleIndex` thật: `deriveCommitmentCycle` (`helpers/commitment-cycle.helper.ts`) ghi rõ ở JSDoc rằng
+//   `cycleIndex` ÂM là hợp lệ về mặt số học và KHÔNG throw — một `ref` trước mốc neo kết nạp cho ra
+//   `-1`, `-2`, … Nghĩa là một caller vô ý truyền kỳ trước-kết-nạp cho mail GẮN-KỲ sẽ ghi đúng vào ô
+//   `-1` của mail KHÔNG-gắn-kỳ và âm thầm chặn vĩnh viễn `enrollment_invite` của người đó (hoặc ngược
+//   lại). Sơ đồ giá trị ở trên vì thế là một BẤT BIẾN phải được ÉP, không phải một quy ước để tin.
+//   Chỗ ép: `CommitmentEmailSenderService` — mọi `emailType` thuộc nhóm GẮN-KỲ bị assert `cycleIndex >= 0`
+//   và THROW nếu vi phạm (fail-closed: thà không gửi còn hơn đầu độc ô sentinel). Guard nằm ở TẦNG GHI SỔ
+//   để không đường gửi nào lách được; ĐỪNG nới thành cảnh báo, và ĐỪNG cấy bản sao guard ở caller.
+model CommitmentEmailSendLog {
+  id                String              @id @default(cuid())
+  userId            String // bare scalar FK — no User relation, matches CommitmentEnrollment precedent
+  emailType         CommitmentEmailType
+  cycleIndex        Int                 @default(-1) // NOT NULL — xem khối cạm-bẫy ở trên; -1 = không gắn kỳ
+  // ⚠⚠ PHÂN BIỆT LẦN GHI DANH (REV-6, sửa lỗi CHẶN của review 113). NOT NULL, sentinel chuỗi RỖNG.
+  //   `cycleIndex` là số 0-based TƯƠNG ĐỐI với `CommitmentEnrollment.enrolledAt`, mà TÁI KẾT NẠP tạo một
+  //   hàng enrollment MỚI với NEO MỚI (xem doc `CommitmentEnrollment` ở trên: "Re-enrollment after `ended`
+  //   creates a NEW row (fresh anchor, fresh trial cycles)") ⇒ `cycleIndex` CHẠY LẠI TỪ 0. Không có cột này
+  //   thì khoá chống trùng của lần ghi danh CŨ sẽ chặn vĩnh viễn và IM LẶNG (`already_sent`, log mức debug)
+  //   mọi mail GẮN KỲ của lần ghi danh MỚI, đúng bằng số kỳ mà lần trước đã chạy — kể cả mail GIAO DỊCH
+  //   (`enrollment_paused`/`voucher_created`): member không bao giờ biết mình bị tạm dừng.
+  //   Vì sao chuỗi RỖNG chứ KHÔNG `String?` nullable: cùng cạm bẫy NULL của `cycleIndex` ở trên — Postgres
+  //   coi mỗi NULL là một giá trị KHÁC NHAU trong unique index, nên nullable sẽ vô hiệu hoá khoá cho đúng
+  //   nhóm mail không-gắn-ghi-danh (`enrollment_invite`, `re_engagement`, `tvtc_awarded_*`) và gửi VÔ HẠN.
+  //   Quy ước: `''` = không gắn lần ghi danh nào (mail không-gắn-kỳ, hoặc không phân giải được).
+  //   Ai điền: `CommitmentEmailSenderService` tự phân giải từ `userId` ở TẦNG GHI SỔ (một truy vấn, gộp lô
+  //   ở `sendBatch`) — KHÔNG bắt caller truyền, để không đường gửi nào lách được và không call site nào
+  //   quên. Mail KHÔNG thuộc `COMMITMENT_CYCLE_SCOPED_EMAIL_TYPES` luôn ghi `''`.
+  enrollmentId      String              @default("")
+  sentAt            DateTime            @default(now()) // mốc đếm trần tần suất (cửa sổ trượt)
+  providerMessageId String? // id Resend trả về — truy vết khi member báo "không nhận được mail"
+  metadata          Json? // ngữ cảnh render (tier đạt, mốc thiếu, …) — schemaless, 0-migration
+  createdAt         DateTime            @default(now())
+
+  // Chống trùng (1). Unique THƯỜNG (không partial) nên Prisma 6 diễn đạt được.
+  // ⚠ `map:` là BẮT BUỘC ở đây, khác chỉ dẫn đời trước của comment này: tên canonical Prisma cho bốn cột
+  // ("commitment_email_send_logs_userId_emailType_cycleIndex_enrollmentId_key") dài 71 ký tự, VƯỢT hạn 63
+  // của Postgres nên sẽ bị cắt cụt và `migrate diff` thấy drift. Tên đặt tay dưới đây dài 55 ký tự và
+  // TRÙNG KHỚP tên trong migration — đừng đổi một bên mà quên bên kia.
+  @@unique([userId, emailType, cycleIndex, enrollmentId], map: "uq_commitment_email_send_log_user_type_cycle_enrollment")
+  // Trần tần suất (2). Thứ tự cột là load-bearing — xem giải thích ở trên.
+  @@index([userId, sentAt])
+  @@map("commitment_email_send_logs")
+}
+
+// Phase 113 (REV-6 D-R6-08) — token HỦY ĐĂNG KÝ mail đường Khởi nghiệp cùng ACTA, một hàng / một user.
+// Bare-scalar `userId` (KHÔNG User relation — tiền lệ enrollment/voucher/ledger).
+//
+// KHUÔN ĐI THEO TIỀN LỆ DUY NHẤT TRONG REPO (`ProductAvailabilitySubscription.unsubscribeToken`), KHÔNG tự
+// nghĩ cơ chế mới: token là 32 byte ngẫu nhiên base64url (43 ký tự, không đoán được, không ký/không giải mã
+// được — chỉ TRA BẢNG), unique để endpoint công khai `findUnique({ where: { token } })` trong đúng một lượt
+// đọc, và link trong mail KHÔNG mang userId nên không lộ danh tính khi mail bị chuyển tiếp.
+//
+// ⚠ KHÁC tiền lệ product-availability ở ĐÚNG MỘT điểm, có chủ ý: ở đó bấm hủy sẽ XOÁ token (link cũ chết).
+// Ở đây token GIỮ NGUYÊN trọn đời và bảng này KHÔNG mang trạng thái hủy — trạng thái thật nằm ở
+// `NotificationPreference` (kênh `email` của mức `important`), vì member còn phải BẬT LẠI được từ trang cài
+// đặt thông báo. Bảng này chỉ trả lời đúng một câu: "token này là của ai". Mint LƯỜI ở lần gửi đầu tiên
+// (upsert) nên dân số cũ không cần backfill.
+//
+// ⚠ KHÔNG dùng cho mail TIỀN của elder/MSTL — những mail đó KHÔNG có link hủy và KHÔNG bao giờ bị chặn.
+model CommitmentEmailUnsubscribeToken {
+  id        String   @id @default(cuid())
+  userId    String   @unique // một token/ người — mint lười ở lần gửi mail cam kết đầu tiên
+  token     String   @unique // 32 byte ngẫu nhiên base64url (randomBytes(32).toString('base64url'))
+  createdAt DateTime @default(now())
+
+  @@map("commitment_email_unsubscribe_tokens")
+}

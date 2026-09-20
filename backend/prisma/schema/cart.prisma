@@ -1,0 +1,67 @@
+model Cart {
+  id String @id @default(cuid())
+
+  // Guest via QR session
+  sessionId String? @unique // NEW: ánh xạ phiên QR/kiosk
+  userId    String? @unique // CHANGED: cho phép null để hỗ trợ guest
+  user      User?   @relation(fields: [userId], references: [id])
+
+  warehouseId String? // NEW: nếu QR gắn kho/quầy
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id])
+
+  items CartItem[] // Các sản phẩm trong giỏ hàng
+
+  // Checkout-hold redesign §3 Task 1.3a (Decision D1) — monotonically increasing
+  // version bumped on every cart mutation. Paired with InventoryReservation.cartItemsVersion
+  // to make /checkout/initiate idempotent across multi-tab scenarios.
+  itemsVersion Int @default(0)
+
+  // Cart-TTL spec §3.5 — cron expire query joins through this back-relation.
+  inventoryReservations InventoryReservation[]
+
+  // Multi-tenant scoping
+  businessId String?
+  business   Business? @relation("BusinessCarts", fields: [businessId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId])
+  @@map("carts")
+}
+
+model CartItem {
+  id String @id @default(cuid())
+
+  quantity Int @default(1) // Số lượng (mặc định 1)
+
+  cartId String
+  cart   Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Frozen variant snapshot written at add-to-cart time (§22).
+  // Shape: { familyId, familyName, axes: [{ axisId, axisName, optionId, optionLabel }] }
+  variantSnapshot Json? // Null for products without a ProductFamily
+
+  // INV-02/G-01 materialized variant discriminator derived from variantSnapshot
+  // via deriveVariantKey (public-cart.service.ts); part of the dedup unique.
+  // Empty string for products without a ProductFamily. Persisted on every
+  // add-to-cart create so the (cartId, productId, variantKey) unique keeps
+  // distinct variants ("size XL" vs "size L") as distinct rows.
+  variantKey String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // INV-02/G-01 — the upsert-merge key. A bare (cartId, productId) unique would
+  // wrongly collapse variants; the variantKey discriminator keeps them distinct.
+  // The matching CREATE UNIQUE INDEX is applied via gated migration 20260602000003
+  // (operator-gated after the dedupe backfill reports 0 remaining duplicates).
+  @@unique([cartId, productId, variantKey])
+  @@index([cartId, productId])
+  @@index([productId])
+  @@index([updatedAt])
+  @@map("cart_items")
+}

@@ -1,0 +1,162 @@
+enum BugStatus {
+  OPEN
+  ASSIGNED
+  EXECUTING
+  DONE
+}
+
+enum BugPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum BugVisibility {
+  INTERNAL // Nội bộ — visible only to Role.ADMIN
+  EXTERNAL // Toàn bộ — visible to admins + bug_report-permission holders
+}
+
+enum BugEnvironment {
+  DEV // Môi trường phát triển
+  PROD // Môi trường production
+}
+
+model BugReport {
+  id String @id @default(cuid())
+
+  code        Int         @unique @default(autoincrement()) // BUG-{n} source — PostgreSQL SERIAL, concurrency-safe (BUG-01)
+  status      BugStatus   @default(OPEN) // create flow sets ASSIGNED at runtime (D-01); OPEN kept for forward-compat (D-02)
+  priority    BugPriority @default(LOW) // D1: optional at create, defaults LOW
+  link        String?     @db.VarChar(2000) // D-06: OPTIONAL, no URL validation (legacy single link)
+  description String      @db.Text // D-06: REQUIRED
+
+  // Batch-2 fields:
+  environment  BugEnvironment @default(DEV) // DEV|PROD — required at create, defaults DEV
+  reopenReason String?        @db.Text // D3: required reason captured when reopening DONE → EXECUTING
+  // Related links beyond the legacy `link`: array of { type, url }. JSON to avoid
+  // a join table (we never query by link). type ∈ Figma|MR|PR|Postman|Other.
+  links        Json?
+
+  // Visibility scope. EXTERNAL (Toàn bộ) is the safe default so existing rows stay
+  // visible to non-admin bug_report holders; INTERNAL (Nội bộ) is admin-only and is
+  // enforced in the service (Role.ADMIN), not at the DB level.
+  visibility BugVisibility @default(EXTERNAL)
+
+  // Creator (any admin-page user) — named relation for disambiguation
+  creatorId String
+  creator   User   @relation("BugCreator", fields: [creatorId], references: [id])
+
+  // Assignee (role=admin) — LEGACY single-assignee column. Kept temporarily for
+  // the backfill into BugAssignment; dropped post-backfill (B-mig step 4).
+  // New code uses the `assignments` pivot, not this column.
+  assigneeId String?
+  assignee   User?   @relation("BugAssignee", fields: [assigneeId], references: [id])
+
+  // Multi-assignee pivot (1-n, D4). Replaces the legacy assigneeId column.
+  assignments BugAssignment[]
+
+  // D-07 actor columns (plain user-id strings, no FK relation needed)
+  assignedBy   String?
+  executedBy   String?
+  markedDoneBy String?
+  reopenedBy   String? // D3 audit: actor who reopened DONE → EXECUTING
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  doneAt    DateTime?
+
+  images   BugImage[]
+  comments BugComment[]
+
+  // Hoạt động KTV — commit/merge tham chiếu bug này (BUG-{n} trong commit message)
+  technicalActivities TechnicalActivityLog[] @relation("BugReportTechnicalActivities")
+
+  @@index([status])
+  @@index([priority])
+  @@index([creatorId])
+  @@index([assigneeId])
+  @@index([link])
+  @@index([visibility])
+  @@index([environment])
+  @@map("bug_reports")
+}
+
+model BugAssignment {
+  id String @id @default(cuid())
+
+  bugId String
+  bug   BugReport @relation(fields: [bugId], references: [id], onDelete: Cascade)
+
+  // Assignee (role=admin) — validated in the service, not at the DB level.
+  assigneeId String
+  assignee   User   @relation("BugAssignments", fields: [assigneeId], references: [id])
+
+  assignedBy String? // actor who created this assignment
+  createdAt  DateTime @default(now())
+
+  @@unique([bugId, assigneeId])
+  @@index([assigneeId])
+  @@map("bug_assignments")
+}
+
+model BugImage {
+  id String @id @default(cuid())
+
+  bugId String
+  bug   BugReport @relation(fields: [bugId], references: [id], onDelete: Cascade)
+
+  url       String
+  // Media discriminator: 'image' (default, back-compat for existing rows) or
+  // 'video'. Kept as a plain String to avoid an enum migration; the service
+  // only ever writes 'image' | 'video'.
+  type      String   @default("image")
+  createdAt DateTime @default(now())
+
+  @@index([bugId])
+  @@map("bug_images")
+}
+
+model BugComment {
+  id String @id @default(cuid())
+
+  bugId String
+  bug   BugReport @relation(fields: [bugId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("BugCommenter", fields: [authorId], references: [id])
+
+  body      String   @db.VarChar(2000)
+  createdAt DateTime @default(now())
+
+  @@index([bugId])
+  @@index([authorId])
+  @@index([createdAt])
+  @@map("bug_comments")
+}
+
+/// Audit trail for admin bug deletions (BUG-DELETE).
+/// CRITICAL: NO relation to BugReport — the bug row is HARD-deleted (cascading
+/// its assignments/images/comments), so this log must SURVIVE it. `bugId`/`bugCode`
+/// are plain scalars and the full pre-delete content lives in `snapshot`.
+model BugReportAuditLog {
+  id String @id @default(cuid())
+
+  action  String // "DELETE" (pattern mirrors ProductReviewAuditLog.action)
+  bugId   String // plain scalar — intentionally NOT an FK to BugReport
+  bugCode Int // BUG-{n} source code, kept for lookup after the bug is gone
+
+  performedById String
+  performedBy   User   @relation("BugReportAuditPerformer", fields: [performedById], references: [id])
+
+  snapshot Json // full pre-delete bug content (status, parties, images, comments)
+  reason   String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([bugId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("bug_report_audit_logs")
+}

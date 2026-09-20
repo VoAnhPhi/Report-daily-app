@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# build output
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+
+# local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# local logs and uploads
+*.log
+uploads/
+storage/
+
+# editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.codebase-memory/

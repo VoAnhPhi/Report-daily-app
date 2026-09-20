@@ -1,0 +1,14 @@
+model FeatureToggle {
+  id          String   @id @default(uuid())
+  key         String   @unique // e.g. "LIVESTREAM", "STORIES"
+  label       String // Vietnamese display name
+  description String? // Optional description
+  isEnabled   Boolean  @default(true)
+  category    String   @default("ui") // group toggles by category
+  updatedAt   DateTime @updatedAt
+  updatedBy   String? // userId of admin who last changed it
+
+  @@index([category])
+  @@index([key])
+  @@map("feature_toggles")
+}

@@ -1,0 +1,78 @@
+/// Mức dùng các trang của BẢNG ĐIỀU KHIỂN QUẢN TRỊ, phục vụ khối "Các tính năng
+/// trên hệ thống" ở trang chủ admin: lối tắt tới những trang người đó hay mở, và
+/// bảng xếp hạng những trang cả nhà đang dùng nhiều nhất.
+///
+/// CỐ Ý KHÔNG có quan hệ tới `User`. Đây là bản ghi VẬN HÀNH, không phải một phần
+/// hồ sơ người dùng: xoá một tài khoản không được kéo theo việc phải dọn hay giữ
+/// lại bảng này, và bảng này cũng không được cản trở việc xoá tài khoản. Cùng lý
+/// do đó, `label` là ẢNH CHỤP nhãn tại thời điểm ghi — nhãn nằm trong mã nguồn
+/// acta-admin, máy chủ không tự tra ngược ra được, nên phải lưu kèm.
+model AdminFeatureUsage {
+  id String @id @default(cuid())
+
+  /// Người dùng đã mở trang. Chuỗi trần, không dựng quan hệ (xem doc của model).
+  userId String
+
+  /// Đường dẫn nội bộ của trang, ví dụ `/admin/don-hang`. Đây là danh tính của
+  /// "một tính năng" trong khối này.
+  path String
+
+  /// Nhãn hiển thị của trang lúc ghi nhận, ví dụ `Đơn hàng`.
+  ///
+  /// Ảnh chụp, KHÔNG phải con trỏ: nhãn sống trong mã nguồn acta-admin. Service
+  /// ghi đè lại nhãn mỗi lần ghi nhận, nên khi mã nguồn đổi tên trang thì nhãn
+  /// cũ tự trôi theo sau lần mở kế tiếp.
+  label String
+
+  /// Nhãn nhóm chức năng chứa trang, ví dụ `Kho hàng`. Có thể trống với những
+  /// trang đứng riêng không thuộc nhóm nào.
+  moduleLabel String?
+
+  /// Số lần mở. Xem doc `@@unique` bên dưới để biết vì sao là bộ ĐẾM chứ không
+  /// phải số dòng nhật ký.
+  hits Int @default(1)
+
+  lastUsedAt DateTime @default(now())
+
+  /// Doanh nghiệp của người dùng lúc ghi — CỘT KIỂM TOÁN, KHÔNG phải khoá phân
+  /// vùng, và cố ý không nằm trong bất kỳ khoá hay bộ lọc nào.
+  ///
+  /// ⚠ Vì sao: `TenantContextResolver` CỐ Ý trả `null` cho tài khoản admin nền
+  /// tảng (`tenant-context.resolver.ts:93-102` — "Admins are CROSS-TENANT"), mà
+  /// phần lớn người dùng bảng điều khiển LÀ admin. Kéo theo hai hệ quả:
+  ///   1. Đưa `businessId` vào `@@unique` thì hết chống trùng: Postgres coi
+  ///      `NULL != NULL`, nên mỗi lần mở trang lại đẻ ra một dòng mới thay vì
+  ///      cộng dồn vào dòng cũ.
+  ///   2. Lọc `where: { businessId }` sẽ chỉ trả về đúng nhóm `null`, tức là
+  ///      giấu mất dữ liệu của mọi người dùng có doanh nghiệp.
+  /// Đó là lý do khoá duy nhất chỉ gồm `[userId, path]`.
+  businessId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Mỗi người + mỗi đường dẫn CHỈ MỘT dòng: bảng này là bộ ĐẾM SẴN
+  /// (`hits` cộng dồn khi ghi lại), không phải nhật ký nối thêm.
+  ///
+  /// Hai cái lợi đổi lấy việc mất chi tiết từng lượt mở:
+  ///   1. Endpoint "phổ biến nhất" chỉ `groupBy` trên một bảng gọn, không phải
+  ///      trên một bảng nhật ký ghi thêm một dòng mỗi lượt mở trang.
+  ///   2. KHÔNG cần cron dọn dẹp — mà theo §42 mọi `@Cron` phải nằm ở kho
+  ///      WORKERS `acta-main-server-workers`, nên thiết kế này tránh hẳn việc
+  ///      một tính năng của CORE phải kéo theo một công việc nền ở kho khác.
+  ///
+  /// ⚠ Nhưng chính khoá này KHÔNG tự sinh ra trần cho bảng, và đừng đọc nó thành
+  /// "bảng dừng ở cỡ (số người × số trang)". `path` là CHUỖI TỰ DO do phía gọi
+  /// gửi lên, nên mỗi chuỗi chưa từng thấy lại đẻ thêm một dòng: "số trang" là
+  /// số chuỗi khác nhau người gọi nghĩ ra, không phải số trang có thật của bảng
+  /// điều khiển. Trần thật nằm ở hằng `FEATURE_USAGE_MAX_ROWS_PER_USER` trong
+  /// `src/admin/feature-usage/feature-usage.service.ts` — một chốt chặn viết tay
+  /// mà `track()` soát trước khi tạo dòng mới. Bỏ chốt chặn đó đi thì cả hai cái
+  /// lợi ở trên mất theo, kể cả điều 2.
+  @@unique([userId, path])
+  /// Lối tắt "gần đây" của một người: lọc theo `userId`, sắp theo `lastUsedAt`.
+  @@index([userId, lastUsedAt])
+  /// Dựng nhãn mới nhất cho danh sách phổ biến (`where: { path: { in: … } }`).
+  @@index([path])
+  @@map("admin_feature_usages")
+}

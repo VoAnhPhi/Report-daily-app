@@ -1,0 +1,149 @@
+/**
+ * Partner API Schema
+ * This schema defines models for managing external partner API credentials.
+ * Partners can be granted API access to specific endpoints with API key + HMAC SHA256 authentication.
+ * Webhook Integration:
+ * - Inbound: Partner → ACTA (partner sends events like user.login, quiz.complete)
+ * - Outbound: ACTA → Partner (ACTA sends notifications)
+ */
+
+/**
+ * Partner Model
+ * Stores partner information and API credentials for external integrations.
+ * Secret keys are encrypted at rest using application-level encryption.
+ */
+model Partner {
+  id        String @id @default(cuid())
+  name      String @unique // Human-readable partner name (e.g., "Egame Lottery")
+  slug      String @unique // URL-safe identifier (e.g., "egame-lottery")
+  apiKey    String @unique // Public API key (e.g., "partner_abc123")
+  secretKey String @db.Text // Encrypted secret key for HMAC signature (API calls)
+
+  // Partner details
+  description String? @db.Text
+  email       String? // Contact email for this partner
+  webhookUrl  String? // Optional webhook URL for notifications (outbound)
+
+  // Webhook INBOUND configuration (Partner → ACTA)
+  // Partner sends webhooks to ACTA at: /api/webhooks/inbound/{webhookUrlSlug}
+  webhookUrlSlug  String? @unique // URL slug for inbound webhook routing (e.g., "egame")
+  webhookSecret   String? @db.Text // Secret to verify inbound webhook signatures
+  webhookBaseUrl  String? // Partner's webhook API base URL (e.g., "https://egame-lottery.ekila.vn")
+  webhookApiToken String? // Token to call partner's webhook management API
+
+  // Webhook OUTBOUND configuration (ACTA → Partner)
+  // ACTA sends webhooks to partner's webhookUrl
+  outboundWebhookSecret String? @db.Text // Secret ACTA generates for partner to verify
+
+  // Status and limits
+  isActive     Boolean @default(true)
+  rateLimit    Int     @default(100) // Requests per minute
+  rateLimitTtl Int     @default(60000) // Time window in ms (default 1 minute)
+
+  // Usage tracking
+  totalRequests Int       @default(0)
+  lastUsedAt    DateTime?
+
+  // Audit fields
+  createdBy String?
+  updatedBy String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
+
+  // Relations
+  apiLogs          PartnerApiLog[]
+  webhookEventLogs PartnerWebhookEventLog[]
+
+  @@index([isActive])
+  @@index([slug])
+  @@index([apiKey])
+  @@index([webhookUrlSlug])
+  @@index([createdAt])
+  @@map("partners")
+}
+
+/**
+ * Partner API Log Model
+ * Logs all API requests made by partners for audit and monitoring.
+ * Stores request details, response status, and timing information.
+ */
+model PartnerApiLog {
+  id String @id @default(cuid())
+
+  // Partner reference
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  // Request details
+  endpoint    String  @db.Text // e.g., "/partner/accounts/check-phone"
+  method      String // GET, POST, PUT, DELETE, etc.
+  requestBody String? @db.Text // Request body (JSON)
+  requestIp   String? // Client IP address
+  userAgent   String? @db.Text // User agent string
+
+  // Response details
+  statusCode   Int // HTTP status code (200, 403, etc.)
+  responseTime Int // Response time in milliseconds
+  errorMessage String? @db.Text // Error message if failed
+
+  // Authentication details
+  authSuccess       Boolean // Whether authentication succeeded
+  authFailureReason String? // Reason for auth failure (timestamp, signature, etc.)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@index([partnerId])
+  @@index([partnerId, createdAt])
+  @@index([createdAt])
+  @@index([statusCode])
+  @@index([authSuccess])
+  @@map("partner_api_logs")
+}
+
+/**
+ * Partner Webhook Event Log Model
+ * Logs all inbound webhook events received from partners.
+ * Used for audit trail, debugging, and monitoring.
+ */
+model PartnerWebhookEventLog {
+  id String @id @default(cuid())
+
+  // Partner reference
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  // Event details
+  eventType String // "user.login", "quiz.complete", "prize.win", etc.
+  payload   String @db.Text // Raw webhook payload (JSON)
+  signature String // Received signature for verification
+  timestamp String // Received timestamp from headers
+
+  // Verification result
+  verified         Boolean // Whether signature verification succeeded
+  processingStatus String // "pending", "processed", "failed"
+
+  // Processing result
+  statusCode Int? // HTTP status returned to partner
+  durationMs Int? // Processing time in milliseconds
+  error      String? @db.Text // Error message if failed
+
+  // Metadata
+  requestIp   String? // IP address of webhook sender
+  receivedAt  DateTime  @default(now()) // When webhook was received
+  processedAt DateTime? // When webhook was processed
+
+  // v2: Idempotency & retry tracking
+  idempotencyKey String? // x-webhook-idempotency-key header
+  attemptNumber  Int? // x-webhook-attempt header
+  maxAttempts    Int? // x-webhook-max-attempts header
+
+  @@index([partnerId])
+  @@index([partnerId, eventType])
+  @@index([eventType])
+  @@index([verified])
+  @@index([receivedAt])
+  @@index([idempotencyKey])
+  @@map("partner_webhook_event_logs")
+}

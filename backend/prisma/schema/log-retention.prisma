@@ -1,0 +1,89 @@
+// Log retention, compaction, and archival models
+
+model ActivityLogDailyRollup {
+  id           String             @id @default(cuid())
+  date         DateTime           @db.Date
+  activityType ActivityType
+  targetType   ActivityTargetType
+  targetId     String?
+  uploaderId   String?
+  count        Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@unique([date, activityType, targetType, targetId, uploaderId])
+  @@index([date])
+  @@index([activityType, date])
+  @@index([targetType, targetId, date])
+  @@map("activity_log_daily_rollups")
+}
+
+model ErrorLogGroup {
+  id                 String    @id @default(cuid())
+  fingerprint        String    @unique
+  route              String
+  action             String?
+  errorCode          String
+  errorMessage       String // first or latest sample
+  stackSignature     String? // normalized first few frames
+  environment        String
+  severity           String    @default("ERROR")
+  firstSeenAt        DateTime
+  lastSeenAt         DateTime
+  occurrenceCount    Int       @default(1)
+  isResolved         Boolean   @default(false)
+  resolvedAt         DateTime?
+  latestSampleStack  String?   @db.Text
+  latestInputSummary String?   @db.Text
+  metadata           Json?
+
+  @@index([environment, severity, lastSeenAt])
+  @@index([isResolved, lastSeenAt])
+  @@index([route, errorCode])
+  @@map("error_log_groups")
+}
+
+enum LogArchiveStatus {
+  PENDING
+  UPLOADING
+  COMPLETED
+  FAILED
+  DELETED
+}
+
+enum LogArchiveType {
+  ACTIVITY
+  ERROR
+}
+
+enum LogArchiveRestoreStatus {
+  NONE
+  RESTORING
+  RESTORED
+  FAILED
+}
+
+model LogArchiveManifest {
+  id              String                  @id @default(cuid())
+  logType         LogArchiveType
+  periodStart     DateTime
+  periodEnd       DateTime
+  rowCount        Int
+  fileKey         String?
+  fileUrl         String?
+  storageProvider String                  @default("uploadthing")
+  fileSizeBytes   Int?
+  checksum        String?
+  status          LogArchiveStatus        @default(PENDING)
+  restoreStatus   LogArchiveRestoreStatus @default(NONE)
+  archivedAt      DateTime?
+  deletedFromDbAt DateTime?
+  errorMessage    String?
+  metadata        Json?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([logType, periodStart, periodEnd])
+  @@index([status])
+  @@map("log_archive_manifests")
+}

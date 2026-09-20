@@ -1,0 +1,35 @@
+// ============================================================================
+// NOTIFICATION PREFERENCES - Multiverse Phase 1
+// Per-User per-importance-level channel routing preferences.
+// ============================================================================
+
+enum NotificationLevel {
+  low
+  normal
+  important
+  critical
+}
+
+enum NotificationChannel {
+  socket
+  in_app
+  email
+  zms
+}
+
+model NotificationPreference {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserNotificationPreferences", fields: [userId], references: [id], onDelete: Cascade)
+
+  level    NotificationLevel
+  channels NotificationChannel[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, level])
+  @@index([userId])
+  @@map("notification_preferences")
+}

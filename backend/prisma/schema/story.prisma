@@ -1,0 +1,245 @@
+// =============================================================================
+// Story Domain — Single-slide model (Instagram/FB pattern)
+// Each Story is one full-screen piece of content. A user's "story tray" is
+// all their unexpired published Stories grouped by userId.
+// =============================================================================
+
+enum StoryStatus {
+  DRAFT
+  PROCESSING
+  PUBLISHED
+  EXPIRED
+  ARCHIVED
+  FAILED
+}
+
+enum StoryVisibility {
+  PUBLIC
+  FOLLOWERS_ONLY
+  CLOSE_FRIENDS
+  CUSTOM
+}
+
+enum StoryMediaType {
+  IMAGE
+  VIDEO
+  TEXT
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+// =============================================================================
+// Core Story model — single slide with optional media, editor state, audio
+// =============================================================================
+
+model Story {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserStories", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Lifecycle
+  status      StoryStatus     @default(DRAFT)
+  visibility  StoryVisibility @default(PUBLIC)
+  publishedAt DateTime?
+  expiresAt   DateTime?
+
+  // Media
+  mediaUrl  String?
+  mediaType StoryMediaType @default(IMAGE)
+  duration  Int            @default(5) // display duration in seconds
+
+  // Content
+  caption     String? @db.Text
+  editorState Json? // EditorState: { layers: TextOverlayLayer[] }
+
+  // Mux video processing
+  muxAssetId    String?
+  muxPlaybackId String?
+
+  // Audio/music
+  audioUrl       String?
+  audioSource    String? // "mubert" | "upload"
+  audioDuration  Float?
+  audioStartTime Float?  @default(0)
+  audioVolume    Float?  @default(1.0)
+  mubertTrackId  String?
+
+  // Moderation
+  isFlagged Boolean   @default(false)
+  deletedAt DateTime?
+
+  // Optimistic locking for draft autosave
+  version Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  views        StoryView[]       @relation("StoryViews")
+  replies      StoryReply[]      @relation("StoryReplies")
+  productTags  StoryProductTag[] @relation("StoryProductTags")
+  reports      StoryReport[]     @relation("StoryReports")
+  audience     StoryAudience[]   @relation("StoryAudienceMembers")
+  exclusions   StoryExclusion[]  @relation("StoryExclusions")
+  storyReviews StoryReview[]     @relation("StoryReviews")
+
+  // Indexes: userId for feed queries, status+expiresAt for active story lookups,
+  // composite for efficient feed filtering
+  @@index([userId])
+  @@index([status, expiresAt])
+  @@index([userId, status, expiresAt])
+  @@index([userId, status, deletedAt])
+  @@index([visibility])
+  @@index([createdAt])
+  @@map("stories")
+}
+
+// =============================================================================
+// Story interactions
+// =============================================================================
+
+model StoryView {
+  id String @id @default(uuid())
+
+  storyId String
+  story   Story  @relation("StoryViews", fields: [storyId], references: [id], onDelete: Cascade)
+
+  viewerId String
+  viewer   User   @relation("UserStoryViews", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  viewedAt DateTime @default(now())
+
+  @@unique([storyId, viewerId])
+  @@index([viewerId])
+  @@index([storyId])
+  @@map("story_views")
+}
+
+model StoryReply {
+  id String @id @default(uuid())
+
+  storyId String
+  story   Story  @relation("StoryReplies", fields: [storyId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("UserStoryReplies", fields: [userId], references: [id], onDelete: Cascade)
+
+  content String? @db.Text
+  emoji   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([storyId])
+  @@index([userId])
+  @@index([storyId, userId])
+  @@map("story_replies")
+}
+
+model StoryProductTag {
+  id        String   @id @default(uuid())
+  storyId   String
+  productId String
+  xPosition Float
+  yPosition Float
+  createdAt DateTime @default(now())
+
+  story   Story   @relation("StoryProductTags", fields: [storyId], references: [id], onDelete: Cascade)
+  product Product @relation("ProductStoryTags", fields: [productId], references: [id])
+
+  @@unique([storyId, productId])
+  @@index([storyId])
+  @@index([productId])
+  @@map("story_product_tags")
+}
+
+// =============================================================================
+// Moderation
+// =============================================================================
+
+model StoryReport {
+  id String @id @default(uuid())
+
+  storyId String
+  story   Story  @relation("StoryReports", fields: [storyId], references: [id], onDelete: Cascade)
+
+  reporterId String
+  reporter   User   @relation("UserStoryReports", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  reason   String
+  evidence String?      @db.Text
+  status   ReportStatus @default(PENDING)
+
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?     @relation("UserStoryReportResolutions", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([storyId])
+  @@index([reporterId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("story_reports")
+}
+
+// =============================================================================
+// Audience targeting
+// =============================================================================
+
+model CloseFriend {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserCloseFriends", fields: [userId], references: [id], onDelete: Cascade)
+
+  friendId String
+  friend   User   @relation("UserCloseFriendOf", fields: [friendId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@map("close_friends")
+}
+
+model StoryAudience {
+  id String @id @default(uuid())
+
+  storyId String
+  story   Story  @relation("StoryAudienceMembers", fields: [storyId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("UserStoryAudience", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([storyId, userId])
+  @@index([storyId])
+  @@index([userId])
+  @@map("story_audience")
+}
+
+model StoryExclusion {
+  id String @id @default(uuid())
+
+  storyId String
+  story   Story  @relation("StoryExclusions", fields: [storyId], references: [id], onDelete: Cascade)
+
+  excludedUserId String
+  excludedUser   User   @relation("UserStoryExclusions", fields: [excludedUserId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([storyId, excludedUserId])
+  @@index([storyId])
+  @@index([excludedUserId])
+  @@map("story_exclusions")
+}

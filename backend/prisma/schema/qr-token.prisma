@@ -1,0 +1,52 @@
+// Loại QR token
+enum QrTokenKind {
+  static_landing // QR tĩnh — dán tại điểm cầu, trỏ về trang điểm cầu
+  dynamic_voucher // QR động 1 lần — claim voucher
+  dynamic_check_in // QR động — check-in có xác thực vị trí
+  dynamic_lead_capture // QR động — thu thập thông tin khách vãng lai
+}
+
+// Token QR dùng cho check-in, voucher claim, hoặc lead capture
+model QrToken {
+  id String @id @default(cuid())
+
+  kind QrTokenKind
+
+  // Điểm cầu liên quan (bắt buộc với mọi loại trừ dynamic_voucher).
+  // ⚠ Trước 07/09/2026 cột này trỏ sang "địa điểm kinh doanh". URL của QR tĩnh nay
+  // sinh từ `slugDiemCau(kho)` — hàm thuần, không đọc cột `slug` nào.
+  warehouseId String?
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  // Voucher (chỉ dùng với dynamic_voucher)
+  userVoucherId String?
+  // Note: backrelation qua UserVoucher không add ở đây để tránh circular
+
+  // Token đã ký (JWT hoặc HMAC)
+  signedToken String @unique // Giá trị đã ký — nhúng vào URL QR
+
+  // Thời hạn
+  expiresAt DateTime
+  usedAt    DateTime? // Thời điểm quét (null = chưa dùng)
+
+  // Người dùng (nếu có — null với static landing)
+  usedByUserId String?
+  usedBy       User?   @relation("UserQrTokensUsed", fields: [usedByUserId], references: [id], onDelete: SetNull)
+
+  // Thu hồi
+  revokedAt DateTime?
+
+  // Metadata mở rộng (VD: { campaign: "grand_opening" })
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  // Quan hệ ngược
+  checkIns WarehouseCheckIn[]
+
+  @@index([expiresAt])
+  @@index([usedAt])
+  @@index([warehouseId, kind])
+  @@index([signedToken])
+  @@map("qr_tokens")
+}

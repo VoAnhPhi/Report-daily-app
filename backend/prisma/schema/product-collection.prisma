@@ -1,0 +1,62 @@
+// Product Collection system — named groupings of products for merchandising,
+// AI-powered recommendations, and regional/seasonal campaigns.
+//
+// ProductCollection: the collection entity (key-named, seeded via migration 30-02).
+// ProductCollectionPin: M:N join with metadata (PinSource, confidenceScore).
+// PinSource enum: distinguishes manual admin curation from AI-suggested pins.
+//
+// Back-relation on Product: collectionPins ProductCollectionPin[] @relation("ProductCollectionPins")
+// (uncommented in product.prisma as of Plan 30-05)
+
+enum PinSource {
+  MANUAL // Admin manually pinned the product
+  SUGGESTION_APPLIED // AI suggestion accepted by admin
+  RULE_AUTO // Automatically pinned by a business rule
+}
+
+model ProductCollection {
+  id            String  @id @default(cuid())
+  key           String  @unique // e.g. "qua-tang-tet"
+  displayName   String // e.g. "Quà tặng Tết"
+  displayNameEn String? @map("display_name_en") // English display name for international UI
+  iconUrl       String? @map("icon_url") // URL for collection icon (UploadThing CDN)
+  color         String? // hex color for UI chip
+  sortOrder     Int     @default(0)
+  isActive      Boolean @default(true)
+  description   String? @db.Text
+
+  // halfvec(1024) embedding column — managed via raw migration SQL (Prisma --create-only
+  // workflow; do NOT run prisma migrate dev without --create-only against this field,
+  // see RESEARCH.md §Pattern 2 / Prisma v7 drift bug #28867)
+  // Phase 31+ must use $queryRaw / $executeRaw for all reads and writes.
+  // Phase 37 embedding pipeline owns population (halfvec(1024) per D-02). Collections are
+  // left UNINDEXED (4–12 rows; seqscan wins) — no HNSW index on this column.
+  embedding        Unsupported("halfvec(1024)")?
+  embeddingVersion String?                       @map("embedding_version")
+
+  pins ProductCollectionPin[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@index([isActive, sortOrder])
+  @@map("product_collections")
+}
+
+model ProductCollectionPin {
+  id              String            @id @default(cuid())
+  collectionId    String
+  collection      ProductCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product           @relation("ProductCollectionPins", fields: [productId], references: [id], onDelete: Cascade)
+  source          PinSource         @default(MANUAL)
+  confidenceScore Float?            @map("confidence_score") // AI suggestion confidence 0.0-1.0; null for MANUAL pins
+  pinnedAt        DateTime          @default(now())
+  pinnedByUserId  String?
+
+  @@unique([collectionId, productId])
+  @@index([collectionId])
+  @@index([productId])
+  @@map("product_collection_pins")
+}

@@ -1,0 +1,24 @@
+enum RedeemVoucherRequestStatus {
+  pending
+  completed
+}
+
+model RedeemVoucherRequest {
+  id           String  @id @default(cuid())
+  email        String?
+  /// Note: follows user's requested spelling
+  referrenceId String?
+  metadata     Json
+  imageUrl     String
+
+  status RedeemVoucherRequestStatus @default(pending)
+
+  completedAt   DateTime?
+  completedById String?
+  completedBy   User?     @relation("RedeemVoucherRequests", fields: [completedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("redeem_voucher_request")
+}

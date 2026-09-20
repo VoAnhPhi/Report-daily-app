@@ -1,0 +1,187 @@
+// ============================================================================
+// MISSION SYSTEM - Multiverse Phase 1
+// Tasks/missions assigned to users/teams with proof submission + review.
+// ============================================================================
+
+enum MissionStatus {
+  draft
+  open
+  claimed
+  in_progress
+  submitted
+  reviewing
+  changes_requested
+  approved
+  rejected
+  completed
+  cancelled
+  expired
+}
+
+enum MissionVisibility {
+  public
+  team
+  warehouse
+  assigned
+  private
+}
+
+enum SubmissionStatus {
+  pending
+  reviewing
+  approved
+  rejected
+  changes_requested
+}
+
+enum ReviewDecision {
+  approved
+  rejected
+  requested_changes
+}
+
+enum RewardType {
+  points
+  xp
+  commission
+  wallet
+  voucher
+  badge
+  title
+  none
+}
+
+// Reward configuration attached to a Mission
+model RewardConfig {
+  id String @id @default(uuid())
+
+  type     RewardType @default(none)
+  amount   Int? // amount of points / xp / wallet currency / commission units
+  metadata Json? // free-form: { voucherTemplateId, badgeId, titleId, ... }
+
+  // Relations
+  missions Mission[] @relation("MissionRewardConfig")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@map("reward_configs")
+}
+
+// Mission - a task/assignment given to a user/team for verification + reward
+model Mission {
+  id String @id @default(uuid())
+
+  // Vietnamese-facing copy
+  title       String // tiếng Việt có dấu
+  description String?
+
+  status     MissionStatus     @default(draft)
+  visibility MissionVisibility @default(public)
+
+  requiresProof    Boolean @default(false)
+  requiresLocation Boolean @default(false)
+
+  deadline DateTime?
+
+  // Free-form validation rules: { minPhotos, maxRadiusM, requiredFields, ... }
+  validationRules Json?
+
+  // Assignment / claim
+  assignedToId String?
+  assignedTo   User?   @relation("MissionAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  claimedById String?
+  claimedBy   User?     @relation("MissionClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  claimedAt   DateTime?
+
+  // Org scoping
+  teamId String?
+  team   Team?   @relation("MissionTeam", fields: [teamId], references: [id], onDelete: SetNull)
+
+  warehouseId String?
+  warehouse   Warehouse? @relation("MissionWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  // Reward
+  rewardConfigId String?
+  rewardConfig   RewardConfig? @relation("MissionRewardConfig", fields: [rewardConfigId], references: [id], onDelete: SetNull)
+
+  // Audit
+  createdById String
+  createdBy   User   @relation("MissionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  // Relations
+  submissions MissionSubmission[] @relation("MissionSubmissions")
+
+  // Multiverse - Community Conversations (mission-scoped chat threads)
+  communityConversations CommunityConversation[] @relation("CommunityConversationMission")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Board / list query indexes
+  @@index([status, claimedById])
+  @@index([status, assignedToId])
+  @@index([status, teamId])
+  @@index([status, warehouseId])
+  @@index([deadline])
+  @@index([createdById])
+  @@index([visibility, status])
+  @@map("missions")
+}
+
+// MissionSubmission - a user's submitted proof for a Mission
+model MissionSubmission {
+  id String @id @default(uuid())
+
+  missionId String
+  mission   Mission @relation("MissionSubmissions", fields: [missionId], references: [id], onDelete: Cascade)
+
+  submittedById String
+  submittedBy   User   @relation("MissionSubmissionSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+
+  proofUrls String[] @default([]) // uploaded media URLs (UploadThing)
+  note      String?
+
+  // Optional location of submission (when mission requiresLocation)
+  locationLat Float?
+  locationLng Float?
+
+  status      SubmissionStatus @default(pending)
+  submittedAt DateTime         @default(now())
+
+  // One review per submission (1:0..1)
+  review MissionReview? @relation("SubmissionReview")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([missionId, status])
+  @@index([submittedById])
+  @@index([status, submittedAt])
+  @@map("mission_submissions")
+}
+
+// MissionReview - admin/leader decision on a MissionSubmission (immutable history)
+model MissionReview {
+  id String @id @default(uuid())
+
+  submissionId String            @unique
+  submission   MissionSubmission @relation("SubmissionReview", fields: [submissionId], references: [id], onDelete: Cascade)
+
+  reviewerId String
+  reviewer   User   @relation("MissionReviewReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  decision ReviewDecision
+  note     String?
+
+  reviewedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reviewerId, reviewedAt])
+  @@index([decision, reviewedAt])
+  @@map("mission_reviews")
+}

@@ -1,0 +1,87 @@
+enum WarehouseReviewType {
+  create
+  update
+  delete
+  move_to_group
+  inventory_movement
+  inventory_config // Oversell-config writes (allowOversell, oversellMode, virtualAvailableQuantity, etc.) — Master Skill §5
+  purchase_order_approval // Native PO workflow — review wraps PurchaseOrder.submit → approve
+  // Người được phân công gửi đề xuất sửa HỒ SƠ CÔNG KHAI của một điểm cầu trên
+  // bản đồ (tên hiển thị, địa chỉ, toạ độ, giờ hoạt động, ảnh). Tách khỏi `update` vì:
+  //  1. hàng đợi duyệt là mục "Thổ địa", không phải "Duyệt kho hàng";
+  //  2. `update` do quản trị gửi, không có bộ lọc trường nào trên `proposedData`;
+  //     loại này do THÀNH VIÊN gửi nên payload phải qua danh sách trường cho phép.
+  location_profile_update
+}
+
+enum WarehouseReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model WarehouseReview {
+  id     String                @id @default(cuid())
+  type   WarehouseReviewType
+  status WarehouseReviewStatus @default(pending)
+
+  // The proposed and previous data snapshots
+  proposedData Json?
+  previousData Json?
+
+  // Target entity.
+  // ⚠ Từ 07/09/2026 chỉ còn HAI giá trị. Giá trị thứ ba (đích "địa điểm kinh
+  // doanh") đã bị gỡ cùng cả họ bảng ấy; migration của đợt gộp xoá luôn các hàng
+  // mang nhãn đó (đo trước khi xoá: 0 hàng). Phiếu `location_profile_update`
+  // nay chỉ có đúng một đích là `'warehouse'`.
+  targetType String // 'warehouse' | 'warehouse_group'
+  targetId   String? // null for create type
+  targetName String? // Denormalized name for display
+
+  // Submitter
+  submittedById String
+  submittedBy   User   @relation("WarehouseReviewSubmitter", fields: [submittedById], references: [id])
+
+  // Reviewer (filled on approval/rejection)
+  reviewedById String?
+  reviewedBy   User?     @relation("WarehouseReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNote   String?   @db.Text
+
+  note     String? @db.Text
+  evidence Json? // Array of evidence URLs (images/documents)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs WarehouseReviewAuditLog[]
+
+  // Inverse relation: a PurchaseOrder may be approved via this review
+  purchaseOrder PurchaseOrder?
+
+  @@index([status])
+  @@index([type])
+  @@index([targetType, targetId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("warehouse_reviews")
+}
+
+model WarehouseReviewAuditLog {
+  id                String          @id @default(cuid())
+  warehouseReviewId String
+  warehouseReview   WarehouseReview @relation(fields: [warehouseReviewId], references: [id], onDelete: Cascade)
+
+  action   String // submitted, approved, rejected, cancelled
+  actorId  String
+  actor    User    @relation("WarehouseReviewAuditActor", fields: [actorId], references: [id])
+  note     String? @db.Text
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([warehouseReviewId])
+  @@index([actorId])
+  @@map("warehouse_review_audit_logs")
+}

@@ -1,0 +1,164 @@
+// ==================== INVENTORY RESERVATION LEDGER ====================
+// Sổ cái đặt chỗ tồn kho - theo dõi soft hold trước khi trừ tồn thực
+
+enum ReservationStatus {
+  pending // Đang chờ xác nhận
+  confirmed // Đã xác nhận giữ chỗ
+  released // Đã giải phóng (hủy giữ chỗ)
+  expired // Hết hạn giữ chỗ
+  cancelled // Đã hủy
+  deducted // Đã trừ tồn thực tế
+}
+
+enum ReservationLedgerType {
+  order_reserve // Giữ chỗ khi đơn hàng được tạo
+  order_release // Giải phóng khi đơn hủy hoặc hết hạn
+  order_deduct // Trừ tồn thực tế khi đơn hoàn thành
+  admin_adjust // Điều chỉnh thủ công bởi admin
+  cart_hold // Giữ chỗ khi khách thêm sản phẩm vào giỏ (cart-source TTL hold) — LEGACY
+  cart_release // Giải phóng khi khách xoá item / clear / TTL hết hạn — LEGACY
+  // Checkout-hold redesign §3 Task 1.2 — new ledger types for the 10-min checkout
+  // window. `released` covers every non-order termination of a checkout_hold; the
+  // free-form `reason` column (already present) records the actor/cause.
+  checkout_hold // Created on /checkout/initiate
+  released // Hold ended without becoming an order (admin/beacon/cron/sellability/etc)
+}
+
+// Cart-TTL spec §1.1 — discriminator that distinguishes cart-source holds
+// (created at add-to-cart) from order-source holds (created at checkout-start).
+// Cron expiration + cart→order transition both filter by this column.
+enum ReservationSource {
+  order_checkout // Legacy default; pre-existing rows backfill to this value.
+  cart_hold // LEGACY — retained for forensics; do not insert. See CheckoutWriteSource type guard.
+  // Checkout-hold redesign §3 Task 1.1 — replaces cart_hold for the 10-min
+  // post-/checkout window. Writers must use CheckoutWriteSource (excludes cart_hold).
+  checkout_hold
+}
+
+model InventoryReservation {
+  id String @id @default(cuid())
+
+  // Số lượng giữ chỗ
+  quantity Int // Số lượng giữ chỗ (luôn dương)
+
+  // Trạng thái
+  status ReservationStatus     @default(pending)
+  type   ReservationLedgerType // Loại bút toán
+  // Cart-TTL spec §1.1 — discriminator. Defaults to legacy order_checkout for
+  // every pre-existing row; cart-source holds set this to cart_hold.
+  source ReservationSource     @default(order_checkout)
+
+  // Thời gian hết hạn tự động
+  expiresAt DateTime?
+
+  // Checkout-hold redesign §3 Task 1.3 — heartbeat freshness for source=checkout_hold.
+  // Updated every 30s by the storefront heartbeat ping; sweep cron releases rows whose
+  // lastPing fell behind by >60s.
+  lastPing DateTime?
+
+  // Checkout-hold redesign §3 Task 1.3 (Decision D1) — idempotency key paired with
+  // Cart.itemsVersion. Same (cartId, cartItemsVersion) → existing hold is returned;
+  // mismatch triggers release-and-create inside one $transaction.
+  cartItemsVersion Int?
+
+  // Ghi chú / lý do
+  reason String? // Lý do giữ chỗ hoặc giải phóng
+  note   String? @db.Text
+
+  isComboComponentHold Boolean @default(false) // true = giữ hàng CHỈ do thành phần combo; nếu có nhu cầu lẻ gộp vào cùng dòng thì để false
+
+  /// Hold này rút từ bể earmark của combo NÀO tại kho CTV. NULL = hold hàng lẻ
+  /// (hoặc hold ở kho thường). `isComboComponentHold` là boolean nên KHÔNG phân
+  /// biệt được hold của hai combo khác nhau trên cùng một thành phần — thiếu cột
+  /// này thì trong cửa sổ giữ chỗ 10 phút hai đơn combo cùng ăn một bể earmark,
+  /// và hold hàng lẻ âm thầm gặm bể combo. Xem combo-earmark.prisma.
+  comboParentProductId String?
+
+  // Relations
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  // Cart-TTL spec §1.1 — cart-source linkage. Nullable when source=order_checkout.
+  cartId           String?
+  cart             Cart?     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  // Denormalised first-item-added timestamp on the owning cart, copied at hold
+  // creation so the expire-cron can filter without an extra cart join.
+  cartFirstAddedAt DateTime?
+
+  // Optimistic locking for cron-vs-checkout race protection (spec §1.5).
+  version Int @default(0)
+
+  // Checkout-hold redesign §3 Task 1.3b — per-item price snapshot at hold creation.
+  // Sellability re-check reads from this table (not a floating parameter).
+  priceSnapshots CheckoutHoldPriceSnapshot[]
+
+  // Actor
+  createdById String? // ID người tạo (admin hoặc system)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([warehouseId])
+  @@index([orderId])
+  @@index([status])
+  @@index([type])
+  @@index([expiresAt])
+  @@index([productId, warehouseId])
+  @@index([productId, warehouseId, status])
+  @@index([orderId, status])
+  @@index([createdAt])
+  // Cart-TTL spec §1.1 — cron + checkout transition lookups.
+  @@index([cartId])
+  @@index([expiresAt, source])
+  @@index([productId, warehouseId, source])
+  // Checkout-hold redesign §3 Task 1.3 — sweep cron (lastPing < now()-60s) and
+  // idempotency lookup (cartId + status + cartItemsVersion).
+  @@index([source, lastPing])
+  @@index([cartId, status, cartItemsVersion])
+  // Khoá tra cứu bể earmark của hold combo tại kho CTV (combo-earmark.prisma).
+  @@index([comboParentProductId])
+  @@index([productId, warehouseId, status, comboParentProductId], map: "inventory_reservations_pool_lookup_idx")
+  // INV-04/D-04 — TWO PARTIAL UNIQUES on the active set (status IN ('pending','confirmed')).
+  // Prisma cannot express a WHERE predicate on @@unique, so these are NOT declared
+  // here as plain @@unique (the columns are nullable and a non-partial unique would
+  // break legacy/released rows). They live in raw-SQL migration 20260602000003
+  // (operator-gated, applied after the dedupe backfill reports 0 remaining duplicates):
+  //   ① checkout-stage: (cartId, productId, warehouseId)
+  //        WHERE "cartId" IS NOT NULL AND "status" IN ('pending','confirmed')
+  //   ② order-stage:    (orderId, productId, warehouseId)
+  //        WHERE "orderId" IS NOT NULL AND "status" IN ('pending','confirmed')
+  // released/expired/cancelled/deducted rows + writeReleaseLedger rows (status=released)
+  // are correctly excluded by the partial predicate, so the supersede/re-hold path
+  // (release-before-create in one tx, G-03) stays safe.
+  @@map("inventory_reservations")
+}
+
+// Checkout-hold redesign §3 Task 1.3b (Architect B4) — per-item price ledger
+// captured at /checkout/initiate time so sellability re-check has authoritative
+// snapshots without parameter-passing.
+model CheckoutHoldPriceSnapshot {
+  id String @id @default(cuid())
+
+  holdId String
+  hold   InventoryReservation @relation(fields: [holdId], references: [id], onDelete: Cascade)
+
+  productId String
+
+  unitPrice          Decimal  @db.Decimal(18, 2)
+  taxRateDirect      Float?
+  discountApplied    Decimal? @db.Decimal(18, 2)
+  voucherId          String?
+  membershipDiscount Decimal? @db.Decimal(18, 2)
+
+  snapshottedAt DateTime @default(now())
+
+  @@index([holdId])
+  @@map("checkout_hold_price_snapshots")
+}

@@ -1,0 +1,152 @@
+// Identity and Invoice Profile Schema
+// Tách riêng dữ liệu nhạy cảm khỏi User table
+
+enum IdentityType {
+  cccd // Căn cước công dân VN
+  cmnd // Chứng minh nhân dân cũ
+  passport // Hộ chiếu
+  tax_id // Mã số thuế cá nhân (nếu cần)
+}
+
+enum IdentityStatus {
+  pending
+  verifying
+  verified
+  rejected
+  expired
+}
+
+enum InvoiceProfileType {
+  personal
+  business
+}
+
+model UserIdentity {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        IdentityType
+  countryCode String // "VN", "US", ... (đề phòng đa quốc gia)
+
+  // Lưu trữ an toàn:
+  // - fullNumberEncrypted: mã hóa (app-level hoặc pgcrypto)
+  // - numberHash: băm (SHA-256 + salt) để unique/search mà không lộ số thô
+  numberHash          String
+  fullNumberEncrypted String // ciphertext (không index)
+  last4               String // để hiển thị *** *** *1234
+
+  issuedDate DateTime?
+  expiryDate DateTime?
+  status     IdentityStatus @default(pending)
+  isPrimary  Boolean        @default(false) // mỗi user cá nhân có thể set 1 primary
+
+  // Tài liệu KYC:
+  frontImageUrl  String?
+  backImageUrl   String?
+  selfieImageUrl String?
+  verifiedAt     DateTime?
+  verifiedBy     String? // adminId hoặc hệ thống
+  note           String? // Ghi chú từ admin khi requestChange
+  issuedPlace    String?
+
+  // Địa chỉ thường trú (tùy chọn — dùng cho prefill hồ sơ hóa đơn cá nhân
+  // ở checkout flow). User có thể tự cập nhật khi tạo hồ sơ cá nhân từ KYC.
+  addressLine1 String?
+  addressLine2 String?
+  ward         String?
+  district     String?
+  city         String?
+  province     String?
+
+  /// Thời điểm chủ hồ sơ nộp bổ sung tài liệu KYC Bậc 2 (ảnh mặt sau + selfie)
+  /// và đang chờ admin duyệt. Xoá về null khi admin duyệt xong.
+  ///
+  /// Cần field riêng vì hồ sơ đã `verified` KHÔNG bị hạ trạng thái khi nộp bổ
+  /// sung (nhiều nơi gate theo `verified`, kể cả hồ sơ hoá đơn ở checkout), nên
+  /// `status` không còn phản ánh được "đang chờ duyệt bậc 2".
+  secondKycSubmittedAt DateTime?
+
+  // Review tracking
+  reviews            UserIdentityReview[] // Tất cả các lần review
+  lastReviewedBy     String? // Admin duyệt gần nhất
+  lastReviewedAt     DateTime? // Thời gian duyệt gần nhất
+  lastReviewedByUser User?                @relation("LastReviewedByUser", fields: [lastReviewedBy], references: [id])
+
+  // Relations
+  personalInvoiceProfiles InvoiceProfile[] @relation("PersonalIdentity")
+  contactInvoiceProfiles  InvoiceProfile[] @relation("InvoiceProfileContact")
+  verifiedByUser          User?            @relation("VerifiedByUser", fields: [verifiedBy], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, isPrimary])
+  @@index([type, countryCode])
+  @@index([status])
+  @@index([secondKycSubmittedAt])
+}
+
+model InvoiceProfile {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        InvoiceProfileType
+  displayName String // Tên gợi nhớ: "Hóa đơn cá nhân", "Hóa đơn Cty ABC"
+  isDefault   Boolean            @default(false)
+
+  // Chung:
+  addressLine1    String
+  addressLine2    String?
+  district        String?
+  city            String
+  province        String?
+  countryCode     String // "VN"
+  emailForInvoice String? // Email nhận hóa đơn điện tử
+  phoneForInvoice String?
+
+  // Cá nhân:
+  // Liên kết identity primary (cccd) để đảm bảo hợp lệ theo quy định mới
+  personalIdentityId String?       @unique
+  personalIdentity   UserIdentity? @relation("PersonalIdentity", fields: [personalIdentityId], references: [id])
+
+  // Doanh nghiệp:
+  companyName       String?
+  // Liên kết với UserIdentity (type=tax) chứa mã số thuế
+  contactIdentityId String?
+  contactIdentity   UserIdentity? @relation("InvoiceProfileContact", fields: [contactIdentityId], references: [id])
+
+  // Relations
+  orders    Order[]
+  orderVats OrderVat[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, isDefault])
+  @@index([type])
+  @@index([contactIdentityId])
+}
+
+// UserIdentity Review - Lưu lịch sử duyệt/yêu cầu chỉnh sửa kèm bằng chứng
+model UserIdentityReview {
+  id             String       @id @default(cuid())
+  userIdentityId String
+  userIdentity   UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Cascade)
+
+  action String // "approve" | "request_changes"
+  reason String? // Lý do yêu cầu sửa (bắt buộc khi action = request_changes)
+  note   String? // Ghi chú thêm (optional)
+
+  proofImages String[] // MẢNG URLs ảnh by chứng từ UploadThing
+
+  reviewedBy   User     @relation("ReviewedByUser", fields: [reviewedById], references: [id])
+  reviewedById String
+  reviewedAt   DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([userIdentityId])
+  @@index([reviewedById])
+  @@index([action])
+}

@@ -1,0 +1,86 @@
+// Trạng thái của một check-in sau khi qua validation
+enum CheckInStatus {
+  received // Đã nhận — chưa validate
+  validated // Hợp lệ (đúng điểm cầu, đúng ngày, không trùng)
+  duplicate_skipped // Trùng ngày — bỏ qua, không tính
+  rejected // Bị từ chối (bot, GPS giả, IP bất thường)
+}
+
+// Nguồn thực hiện check-in
+enum CheckInSource {
+  web // Trình duyệt web
+  mobile // App mobile
+  pwa // Progressive Web App
+  qr_static // QR tĩnh tại điểm cầu
+  qr_dynamic // QR động một lần (cấp bởi hệ thống)
+}
+
+// Lịch sử check-in tại điểm cầu (kho)
+//
+// ⚠ Trước 07/09/2026 đây là bảng check-in của "địa điểm kinh doanh".
+//
+// ⚠ CỘT `businessId` ĐÃ BỎ. Bản cũ chép tay mã doanh nghiệp của địa điểm xuống
+// đây để lọc check-in theo doanh nghiệp mà không phải JOIN. Điểm cầu là hạ tầng
+// của CHÍNH ACTA — không có doanh nghiệp chủ quản để chép — nên cột đó sau gộp
+// chỉ còn là một chỗ để dữ liệu nói dối. Lát cắt "theo doanh nghiệp" của trang
+// Phân tích địa điểm bỏ luôn cùng đợt (ADR §7.5).
+model WarehouseCheckIn {
+  id String @id @default(cuid())
+
+  // Người check-in — một trong hai trường phải có giá trị
+  userId String? // User đăng nhập (nullable nếu khách vãng lai)
+  user   User?   @relation("UserCheckIns", fields: [userId], references: [id], onDelete: SetNull)
+
+  /// ⚠ CHỈ CÒN GIÁ TRỊ LỊCH SỬ (08/09/2026). Không đường ghi nào còn đặt cột
+  /// này: cả hai lối check-in (nút bấm và mã QR) đều đòi đăng nhập, nên `userId`
+  /// luôn có. Cột được GIỮ vì các hàng cũ của khách vãng lai vẫn nằm trong bảng
+  /// và vẫn được đếm — xoá cột là một migration cộng với việc bỏ dữ liệu thật.
+  guestLeadId String? // Khách vãng lai (hàng cũ; đường ghi hiện tại không dùng)
+  guestLead   GuestLead? @relation(fields: [guestLeadId], references: [id], onDelete: SetNull)
+
+  // Điểm cầu
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  // Thời gian
+  checkInAt   DateTime @default(now()) // Timestamp đầy đủ
+  checkInDate DateTime @db.Date // Ngày (Date only — dùng cho dedup unique)
+
+  // Trạng thái và nguồn
+  status CheckInStatus @default(received)
+  source CheckInSource @default(web)
+
+  // Metadata kỹ thuật (cho fraud detection)
+  ipAddress String? // IP của client (masked production)
+  userAgent String? // User agent string
+  sessionId String? // Session ID của request
+
+  // QR token nếu check-in qua QR
+  qrTokenId String? // FK tới QrToken
+  qrToken   QrToken? @relation(fields: [qrTokenId], references: [id], onDelete: SetNull)
+
+  // GPS client (tự báo, không dùng làm bằng chứng xác thực)
+  clientLatitude  Float?
+  clientLongitude Float?
+
+  // Tín hiệu validation mở rộng (JSON)
+  // VD: { gpsDistance: 150, ipMatched: true, riskScore: 12 }
+  validationSignals Json?
+
+  // Lý do bỏ qua (chỉ có khi status = duplicate_skipped hoặc rejected)
+  duplicateReason String?
+
+  createdAt DateTime @default(now())
+
+  // Dedup: mỗi user chỉ check-in 1 lần / điểm cầu / ngày
+  /// ⚠ ĐỌC ĐÚNG SỨC MẠNH CỦA KHOÁ NÀY: Postgres coi mọi NULL là KHÁC NHAU, nên
+  /// nó KHÔNG chặn được khách vãng lai (`userId` NULL) — hai lượt của cùng một
+  /// máy vẫn ghi được hai dòng. Chốt chống trùng THẬT nằm ở tầng ứng dụng
+  /// (`warehouse-check-ins.service.ts`); khoá này là lớp thứ hai.
+  @@unique([userId, warehouseId, checkInDate])
+  @@index([warehouseId, checkInDate])
+  @@index([userId, checkInDate])
+  @@index([status])
+  @@index([qrTokenId])
+  @@map("warehouse_check_ins")
+}

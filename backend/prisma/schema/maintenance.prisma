@@ -1,0 +1,75 @@
+enum MaintenanceStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum MaintenanceTargetScope {
+  ALL
+  DOMAINS
+  SERVICES
+  PATHS
+}
+
+enum MaintenanceResponseStrategy {
+  REDIRECT
+  JSON_503
+  AUTO
+}
+
+model MaintenanceWindow {
+  id           String  @id @default(cuid())
+  title        String
+  slug         String  @unique
+  shortMessage String
+  description  String? @db.Text
+
+  status MaintenanceStatus @default(DRAFT)
+
+  startsAt DateTime
+  endsAt   DateTime
+
+  // Manual override
+  isManualOverrideActive Boolean @default(false)
+  manualOverrideReason   String?
+
+  // Maintenance page customization
+  pageTitle          String?
+  pageMessage        String? @db.Text
+  pageButtonText     String?
+  pageImageUrl       String?
+  pageIconUrl        String?
+  maintenancePageUrl String?
+
+  // Target scope
+  targetScope    MaintenanceTargetScope @default(ALL)
+  targetDomains  String[]
+  targetServices String[]
+  targetPaths    String[]
+
+  // Response strategy
+  responseStrategy MaintenanceResponseStrategy @default(AUTO)
+
+  // Bypass settings
+  allowAdminBypass  Boolean  @default(true)
+  bypassIpAllowlist String[]
+  bypassSecretToken String?
+  excludedPaths     String[]
+
+  // Audit
+  createdById String
+  createdBy   User    @relation("MaintenanceCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("MaintenanceUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, startsAt, endsAt])
+  @@index([slug])
+  @@index([status])
+  @@index([startsAt])
+  @@map("maintenance_windows")
+}

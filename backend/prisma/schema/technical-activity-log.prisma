@@ -1,0 +1,90 @@
+// Hoạt động KTV — technical activity tracking (commits, merges, CI events)
+// Source of records: Claude Code post-commit reporter, git hooks, CI, manual entry.
+// Platform-global (no tenant scoping) — mirrors bug_reports.
+
+enum TechnicalActivitySource {
+  COMMIT
+  MERGE
+  MANUAL
+  CI
+  CLAUDE_CODE
+  GIT_HOOK
+  HUMAN_GIT_HOOK
+}
+
+enum TechnicalActivityEnvironment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+  DEMO
+  UNKNOWN
+}
+
+model TechnicalActivityLog {
+  id String @id @default(cuid())
+
+  source TechnicalActivitySource @default(COMMIT)
+
+  repoName        String
+  repoUrl         String?
+  commitHash      String?
+  shortCommitHash String?
+  commitMessage   String
+  commitBody      String?
+  branchName      String
+  baseBranch      String?
+  targetBranch    String?
+
+  environment      TechnicalActivityEnvironment @default(UNKNOWN)
+  environmentLabel String
+
+  gitAuthorName     String
+  gitAuthorEmail    String
+  gitCommitterName  String?
+  gitCommitterEmail String?
+
+  // Best-effort mapping git author/committer email -> User. Snapshot fields are
+  // denormalized at ingest time; the relation stays for live joins.
+  matchedUserId       String?
+  matchedUser         User?   @relation("UserTechnicalActivities", fields: [matchedUserId], references: [id], onDelete: SetNull)
+  matchedReferenceId  String?
+  matchedUserFullName String?
+  matchedUserEmail    String?
+
+  // Liên kết Báo cáo lỗi — set khi commit message tham chiếu BUG-{n} hoặc dán
+  // URL /bug-reports/{id}; chi tiết auto-transition nằm trong metadata.bugTracking.
+  bugReportId String?
+  bugReport   BugReport? @relation("BugReportTechnicalActivities", fields: [bugReportId], references: [id], onDelete: SetNull)
+
+  // Inference fields are estimates ("Ước lượng") unless provided by the client.
+  featureName        String?
+  phaseName          String?
+  progressPercent    Int?
+  progressConfidence Int?
+  summary            String?
+  technicalSummary   String?
+
+  changedFilesCount Int?
+  additions         Int?
+  deletions         Int?
+  filesChanged      Json?
+  metadata          Json?
+
+  // Client-provided dedupe key (repoName:commitHash:source). NULLs never collide.
+  idempotencyKey String? @unique
+
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([repoName, commitHash, source])
+  @@index([bugReportId, occurredAt(sort: Desc)])
+  @@index([occurredAt(sort: Desc)])
+  @@index([gitAuthorEmail, occurredAt(sort: Desc)])
+  @@index([matchedUserId, occurredAt(sort: Desc)])
+  @@index([branchName, occurredAt(sort: Desc)])
+  @@index([environment, occurredAt(sort: Desc)])
+  @@index([repoName, occurredAt(sort: Desc)])
+  @@index([source, occurredAt(sort: Desc)])
+  @@map("technical_activity_logs")
+}

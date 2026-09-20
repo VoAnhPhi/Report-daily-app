@@ -1,0 +1,49 @@
+// Audit log cho Category — ghi lại mọi thay đổi trên cây danh mục.
+// Append-only: không có updatedAt. Hàng không bị xóa tự động (D-03).
+// Undo window 30 ngày được kiểm soát ở tầng endpoint (Phase 31).
+
+enum CategoryAuditAction {
+  RENAME
+  REORDER
+  REPARENT
+  CREATE
+  DELETE
+  UPDATE_META
+  ASSIGN_PRODUCTS
+  UNASSIGN_PRODUCTS
+}
+
+model CategoryAuditLog {
+  id String @id @default(cuid())
+
+  // FK đến Category bị tác động
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  // Người thực hiện hành động
+  actorUserId String
+  actor       User   @relation("CategoryAuditActor", fields: [actorUserId], references: [id])
+
+  // Loại hành động
+  action CategoryAuditAction
+
+  // Snapshot trước / sau khi thay đổi (full row — D-03)
+  beforeJson Json?
+  afterJson  Json?
+
+  // Timestamp tạo bản ghi (không có updatedAt — append-only)
+  createdAt DateTime @default(now())
+
+  // Thông tin hoàn tác (soft-tombstone; hàng vẫn tồn tại)
+  undoneAt       DateTime?
+  undoneByUserId String?
+  undoneBy       User?     @relation("CategoryAuditUndoneBy", fields: [undoneByUserId], references: [id])
+  undoNote       String?
+
+  // Phase 31 — nhóm các hàng từ một lần sắp xếp hàng loạt để hoàn tác nguyên tử
+  batchId String? // cuid; groups rows from one batch reorder for atomic undo
+
+  @@index([categoryId, createdAt(sort: Desc)])
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@map("category_audit_logs")
+}

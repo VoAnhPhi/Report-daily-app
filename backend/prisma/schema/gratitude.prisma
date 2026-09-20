@@ -1,0 +1,43 @@
+model GratitudeConfig {
+  id         String   @id @default(cuid())
+  percentage Float    @default(5.0)
+  updatedAt  DateTime @updatedAt
+
+  @@map("gratitude_configs")
+}
+
+enum GratitudeStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+model OrderGratitude {
+  id            String          @id @default(cuid())
+  orderId       String
+  giverId       String
+  beneficiaryId String
+  status        GratitudeStatus @default(PENDING)
+
+  // Financial Snapshots - Captured at the moment of gratitude submission to ensure audit integrity
+  /// The system-wide percentage applied at submission time
+  appliedPercentage Float
+  /// Sum of VAT amounts from all items in the order
+  vatAmount         Decimal @db.Decimal(15, 2)
+  /// Total 5-3-2 system fees deducted from the pre-tax amount
+  deduction532      Decimal @db.Decimal(15, 2)
+  /// The "clean" amount used as the basis for calculation (Pre-tax - 532 fees)
+  baseAmount        Decimal @db.Decimal(15, 2)
+  /// Final reward amount awarded to the beneficiary (baseAmount * appliedPercentage)
+  commissionAmount  Decimal @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order       Order @relation(fields: [orderId], references: [id])
+  giver       User  @relation("GratitudeGiver", fields: [giverId], references: [id])
+  beneficiary User  @relation("GratitudeBeneficiary", fields: [beneficiaryId], references: [id])
+
+  @@unique([orderId, giverId])
+  @@map("order_gratitudes")
+}

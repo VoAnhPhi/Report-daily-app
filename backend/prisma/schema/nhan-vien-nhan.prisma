@@ -1,0 +1,162 @@
+// ============================================================================
+// NHÂN VIÊN NHÀN — trợ lý AI của màn Công việc
+// Hộp chat chỉ dành cho super admin (users.role = 'admin'), trả lời câu hỏi về
+// công việc/đối tác và gọi công cụ để tra cứu, lập báo cáo, soạn thư.
+//
+// Ba bảng: hội thoại → lượt nói → đề xuất thao tác ghi.
+//
+// Vì sao có bảng đề xuất riêng: mọi công cụ GHI (tạo việc, đổi trạng thái,
+// bình luận, gửi thư) KHÔNG chạy ngay. Máy dựng sẵn thao tác, ghi xuống đây ở
+// trạng thái `pending` kèm bản xem trước đã giải nghĩa, rồi chờ người bấm Xác
+// nhận. Một câu mơ hồ kiểu "từ chối các việc không ưu tiên cao" do đó không
+// bao giờ đổi trạng thái hàng chục việc trước khi người kịp đọc.
+//
+// Lưu ý namespace: tên Task/Message/Conversation đã bị gamification và tin nhắn
+// người-với-người chiếm, nên toàn bộ model ở đây mang tiền tố Nhan*.
+// Soft FK (không @relation) cho createdById — theo tiền lệ DailyReport, để
+// không phải thêm back-relation vào model User vốn đã rất dài.
+// ============================================================================
+
+/// Ai nói trong một lượt.
+enum NhanMessageRole {
+  user // Người dùng gõ vào
+  assistant // Nhân viên Nhàn trả lời
+}
+
+/// Loại thao tác GHI mà trợ lý có thể đề xuất. Mỗi giá trị ứng với đúng một
+/// công cụ trong `tools/` và một nhánh trong `executeProposal()`.
+enum NhanProposalKind {
+  tao_viec // Tạo một công việc mới
+  cap_nhat_viec // Sửa tiêu đề/mô tả/hạn/ưu tiên của việc đã có
+  doi_trang_thai // Đổi trạng thái (dùng cho cả "từ chối" = cancelled)
+  binh_luan_viec // Thêm bình luận vào việc, kèm nguồn tham khảo
+  gui_thu // Gửi thư cho một người hoặc một nhóm
+}
+
+/// Vòng đời một đề xuất. `expired` do người bỏ quên quá hạn, `failed` do khâu
+/// thực thi ném lỗi sau khi đã được xác nhận.
+enum NhanProposalStatus {
+  pending
+  confirmed
+  cancelled
+  expired
+  failed
+}
+
+/// Một hội thoại — tương đương một mục trong danh sách lịch sử chat.
+model NhanConversation {
+  id    String  @id @default(uuid())
+  /// Tiêu đề rút gọn, sinh từ câu hỏi đầu tiên. Null khi chưa có lượt nào.
+  title String? @db.VarChar(200)
+
+  /// Soft FK → users.id. Chủ hội thoại; mọi truy vấn đều lọc theo cột này nên
+  /// một super admin không đọc được hội thoại của super admin khác.
+  createdById String
+
+  /// Mốc sắp xếp danh sách lịch sử. Bump ở mỗi lượt nói.
+  lastMessageAt DateTime  @default(now())
+  /// Xoá mềm để người dùng "xoá" mà vẫn giữ được vết kiểm toán.
+  deletedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages  NhanMessage[]
+  proposals NhanActionProposal[]
+
+  @@index([createdById, deletedAt, lastMessageAt(sort: Desc)])
+  @@map("nhan_conversations")
+}
+
+/// Một lượt nói. Lượt của trợ lý mang thêm vết công cụ, nguồn web và số token.
+model NhanMessage {
+  id             String          @id @default(uuid())
+  conversationId String
+  role           NhanMessageRole
+
+  /// Nội dung đã hiển thị được. Với lượt trợ lý đây là phần văn bản cuối cùng
+  /// sau khi vòng lặp công cụ kết thúc.
+  content String @db.Text
+
+  /// Vết chạy công cụ của lượt này — mảng
+  /// `{ ten, dauVao, tomTat, thanhCong, msChay }`. Dùng để hiện dòng
+  /// "đã tra 12 công việc" dưới câu trả lời, và để dò lỗi khi máy trả lời sai.
+  toolTrace Json @default("[]")
+
+  /// Nguồn web đã đọc — mảng `{ tieuDe, url, trichDan }`. Tách riêng khỏi
+  /// toolTrace vì phần này được gắn kèm khi người bấm "chèn vào mô tả việc".
+  sources Json @default("[]")
+
+  /// Id người và id công việc được nhắc bằng @ trong lượt NGƯỜI dùng gõ.
+  /// Chuỗi thô (không FK) — theo đúng tiền lệ
+  /// BusinessFormTaskActivity.mentionedUserIds.
+  mentionedUserIds String[] @default([])
+  mentionedTaskIds String[] @default([])
+
+  /// Model thực sự đã chạy lượt này. Ghi lại vì bộ định tuyến có leo thang từ
+  /// Haiku sang Sonnet, nên "vì sao lượt này đắt" phải trả lời được.
+  model        String? @db.VarChar(60)
+  inputTokens  Int?
+  outputTokens Int?
+
+  /// Lỗi (nếu có) đã làm hỏng lượt này — hiện nguyên văn cho super admin.
+  errorMessage String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  conversation NhanConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  proposals    NhanActionProposal[]
+
+  @@index([conversationId, createdAt])
+  @@map("nhan_messages")
+}
+
+/// Một thao tác GHI đang chờ người xác nhận.
+model NhanActionProposal {
+  id             String             @id @default(uuid())
+  conversationId String
+  /// Lượt trả lời đã sinh ra đề xuất này.
+  messageId      String
+  kind           NhanProposalKind
+  status         NhanProposalStatus @default(pending)
+
+  /// Tham số thô sẽ được đưa vào tầng service khi xác nhận. Không bao giờ
+  /// hiển thị thẳng cho người dùng — `preview` mới là thứ để đọc.
+  payload Json
+
+  /// Bản xem trước đã giải nghĩa sang tiếng Việt:
+  /// `{ tieuDe, dong: [{nhan, giaTri}], canhBao?: string[], soDoiTuong: number }`.
+  /// Dựng ở lúc đề xuất chứ không lúc xác nhận, để thứ người đọc đúng bằng thứ
+  /// máy sẽ làm.
+  preview Json
+
+  /// Soft FK → users.id. Người sở hữu hội thoại; chỉ người này xác nhận được.
+  createdById String
+
+  /// Quá hạn thì không chạy nữa — dữ liệu bên dưới có thể đã đổi.
+  expiresAt   DateTime
+  confirmedAt DateTime?
+
+  /// Một dòng tiếng Việt tóm tắt kết quả sau khi chạy, hoặc lý do thất bại.
+  resultSummary String?  @db.Text
+  /// Id các bản ghi đã tạo/sửa — để đối chiếu và (về sau) hoàn tác.
+  affectedIds   String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversation NhanConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      NhanMessage      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  /// Đường đọc tập hợp DUY NHẤT của bảng này là nạp đề xuất theo từng lượt nói
+  /// (`include: { proposals: { orderBy: { createdAt: 'asc' } } }` ở
+  /// `chiTietHoiThoai` và ở cuối `chat`), tức `WHERE messageId IN (…) ORDER BY
+  /// createdAt`. Bảng chỉ tăng — `donHetHan` chỉ ĐỔI `status`, không bao giờ xoá
+  /// — nên thiếu chỉ mục này thì mỗi lần mở hội thoại là một lần quét tuần tự
+  /// toàn bảng. Chỉ mục `[conversationId, status]` cũ đã bị bỏ: không truy vấn
+  /// nào lọc theo cặp đó.
+  @@index([messageId, createdAt])
+  /// Cho `donHetHan`: quét hàng `pending` đã quá `expiresAt`.
+  @@index([status, expiresAt])
+  @@map("nhan_action_proposals")
+}

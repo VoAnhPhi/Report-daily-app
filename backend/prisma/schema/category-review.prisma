@@ -1,0 +1,76 @@
+enum CategoryReviewType {
+  create
+  update
+  delete
+}
+
+enum CategoryReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model CategoryReview {
+  id String @id @default(cuid())
+
+  type   CategoryReviewType
+  status CategoryReviewStatus @default(pending)
+
+  // Snapshot of the proposed category data (full JSON for create/update, null for delete)
+  proposedData Json? // Full category payload
+  previousData Json? // Snapshot of current category state before change (for update/delete)
+
+  // Category reference (null for create since category doesn't exist yet)
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Submitter
+  submittedById String
+  submittedBy   User     @relation("CategoryReviewSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime @default(now())
+
+  // Reviewer (filled on approve/reject)
+  reviewedById String?
+  reviewedBy   User?     @relation("CategoryReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  // Reviewer feedback
+  reviewNote   String?  @db.Text
+  reviewImages String[] // uploadthing URLs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Audit log entries
+  auditLogs CategoryReviewAuditLog[]
+
+  @@index([status])
+  @@index([type])
+  @@index([categoryId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("category_reviews")
+}
+
+model CategoryReviewAuditLog {
+  id String @id @default(cuid())
+
+  action   String // submitted, approved, rejected, cancelled
+  note     String? @db.Text
+  metadata Json? // Any extra context
+
+  performedById String
+  performedBy   User   @relation("CategoryReviewAuditPerformer", fields: [performedById], references: [id])
+
+  reviewId String
+  review   CategoryReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("category_review_audit_logs")
+}

@@ -1,0 +1,42 @@
+// acta-prisma-contracts/prisma/schema/home-brand-marquee.prisma
+// NEW — dải logo thương hiệu trên trang chủ storefront.
+// GLOBAL storefront config — NO businessId (không tenant-scoped), giống
+// TrendingSearchConfig: admin tự chọn và sắp xếp, storefront chỉ đọc.
+
+model HomeBrandLogo {
+  id String @id @default(cuid())
+
+  name     String // Tên thương hiệu — dùng làm alt text và tooltip
+  imageUrl String // URL công khai của logo (UploadThing CDN)
+  imageKey String? // Uploadthing file key, để xoá file khi gỡ logo
+  linkUrl  String? // Link khi bấm vào logo; null = không phải liên kết
+
+  row       Int     @default(1) // 1 = hàng trên (chạy phải), 2 = hàng dưới (chạy trái)
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Đường đọc duy nhất của storefront: lọc isActive rồi sắp theo (row, sortOrder).
+  @@index([isActive, row, sortOrder])
+  @@map("home_brand_logos")
+}
+
+// Cấu hình mức section cho dải logo, theo tiền lệ `GET /gratitude/config`.
+/// Hàng SINGLETON: id cố định 'singleton', do migration gieo sẵn. Nhờ vậy đường
+/// đọc công khai không bao giờ phải GHI vào DB, và không thể có hàng thứ hai.
+/// Lưu ý: tên bảng để SỐ ÍT theo hợp đồng đã chốt, khác thói quen số nhiều của
+/// các bảng cấu hình anh em (trending_search_configs, shipping_origin_configs).
+model HomeBrandMarqueeConfig {
+  id String @id @default("singleton")
+
+  enabled     Boolean @default(true)
+  topSpeed    Int     @default(42) // px/s, hàng trên
+  bottomSpeed Int     @default(30) // px/s, hàng dưới — cố ý chậm hơn hàng trên
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_brand_marquee_config")
+}

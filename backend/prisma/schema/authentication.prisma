@@ -1,0 +1,164 @@
+model EmailChange {
+  token      String   @id @db.Char(21)
+  newEmail   String
+  userId     String   @unique
+  validUntil DateTime @default(dbgenerated("(timezone('utc'::text, now()) + '2 days'::interval)")) @db.Timestamp(6)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_changes")
+}
+
+model EmailVerification {
+  token      String   @id @db.Char(30)
+  userId     String   @unique
+  validUntil DateTime @default(dbgenerated("(timezone('utc'::text, now()) + '2 days'::interval)")) @db.Timestamp(6)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verifications")
+}
+
+model OtpVerification {
+  token          String            @id @db.Char(21)
+  userId         String            @unique
+  phoneNumber    String            @db.VarChar(15)
+  otp            String            @db.VarChar(6)
+  provider       OtpProvider       @default(zalo)
+  providerMsgId  String?
+  deliveryStatus OtpDeliveryStatus @default(queued)
+  validUntil     DateTime          @db.Timestamp(6)
+  createdAt      DateTime          @default(now()) @db.Timestamp(6)
+  verifiedAt     DateTime?         @db.Timestamp(6)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("otp_verifications")
+}
+
+enum OtpProvider {
+  yoursales_sms
+  zalo
+}
+
+enum OtpDeliveryStatus {
+  queued
+  delivered
+  failed
+}
+
+/// Token-keyed, MODEL-INDEPENDENT exactly-once fallback marker (FB-08 /
+/// D-04-XO). Deliberately NOT a column on OtpVerification — that would
+/// structurally no-op for the PasswordChangeOtp forgot-password flow, which
+/// has its own token space (Char(6)) and no OtpVerification row at all.
+/// `token` is a plain String (no @db.Char) precisely so it can hold either
+/// an OtpVerification token (21 chars) or a PasswordChangeOtp token (6
+/// chars) as the stable claim key. No FK to any OTP table, same rationale
+/// as OtpSendAttempt below: OTP rows are deleted/recreated across their
+/// lifecycle, but the claim marker must outlive that (it exists precisely to
+/// survive the vendor's webhook-retry window).
+model OtpFallbackClaim {
+  token     String   @id
+  claimedAt DateTime @default(now())
+
+  @@map("otp_fallback_claims")
+}
+
+/// Insert-only send-attempt log. No relation to OtpVerification — OTP rows are
+/// deleted on verify (single-use) and delete-and-recreated on renew, so a
+/// cascading FK would erase delivery history exactly when it is needed.
+/// userId/phoneNumber are stored directly so the row stands alone.
+model OtpSendAttempt {
+  id String @id @default(cuid())
+
+  userId      String
+  phoneNumber String
+
+  provider      OtpProvider
+  attemptNumber Int
+  outcome       String // free-form, e.g. 'sent' | 'failed' | 'delivered'
+  errorCode     String?
+  providerMsgId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([phoneNumber])
+  @@index([createdAt])
+  @@map("otp_send_attempts")
+}
+
+/// Insert-only inbound-callback audit log (HOOK-05). Records EVERY hit the
+/// YourSales sms-status webhook receives — accepted, rejected-by-IP,
+/// rejected-by-secret, malformed, unknown-msg_id, and duplicate — not just
+/// the accepted ones. Separate stream from OtpSendAttempt (D-05): that
+/// table answers "what did the telco confirm about a send", this one
+/// answers "what inbound HTTP hits did our webhook receive and how did we
+/// dispose of each." No FK to OtpVerification/OtpSendAttempt (D-04) — a
+/// rejected callback has no user at all, and OTP rows are deleted on
+/// verify/renew, so a cascade would erase audit history exactly when it is
+/// needed. userId/phoneNumber are nullable snapshot columns, not FKs.
+///
+/// NEVER add a secret column here (D-03) — a rejected_secret row records
+/// only that the check failed, never the provided or expected value.
+model OtpInboundCallbackAudit {
+  id String @id @default(cuid())
+
+  disposition OtpCallbackDisposition
+
+  rawMsgId  String? // msg_id exactly as received (nullable — malformed hits may lack it)
+  rawSmsId  String? // sms_id exactly as received (docs contradict msg_id vs sms_id — both captured)
+  status    String? // raw status query param as received
+  errorCode String? // raw error_code query param as received
+  sourceIp  String? // resolved client IP (nullable — may be unresolvable)
+
+  userId      String? // nullable SNAPSHOT, NOT a FK — rejected calls have no user
+  phoneNumber String? // nullable SNAPSHOT, NOT a FK
+
+  createdAt DateTime @default(now())
+
+  @@index([rawMsgId])
+  @@index([disposition])
+  @@index([createdAt])
+  @@map("otp_inbound_callback_audits")
+}
+
+/// Distinct name deliberately chosen to avoid colliding with OtpDeliveryStatus
+/// (this project) or DeliveryStatus (Phase 35's collision class).
+enum OtpCallbackDisposition {
+  accepted
+  rejected_ip
+  rejected_secret
+  malformed
+  unknown_msgid
+  duplicate
+}
+
+model PasswordReset {
+  token      String   @id @db.Char(21)
+  userId     String   @unique
+  validUntil DateTime @db.Timestamp(6)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
+
+model PasswordChangeOtp {
+  token       String   @id @db.Char(6) // 6-digit OTP
+  userId      String   @unique
+  method      String   @default("email") // 'email' or 'zalo'
+  phoneNumber String? // Optional - for Zalo OTP tracking and security binding
+  validUntil  DateTime @db.Timestamp(6)
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_change_otps")
+}
+
+model WithdrawalOtp {
+  token      String   @id @db.Char(6) // 6-digit OTP
+  userId     String   @unique
+  amount     Decimal  @db.Decimal(18, 2)
+  method     String   @default("email") // "email" or "zalo"
+  validUntil DateTime @db.Timestamp(6)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("withdrawal_otps")
+}

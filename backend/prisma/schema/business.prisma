@@ -1,0 +1,103 @@
+enum BusinessType {
+  expansion // Đối tác mở rộng
+  platform // Đối tác nền tảng
+}
+
+model Business {
+  id String @id @default(cuid())
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietTradeMarkId Int?    @unique // ID đối tác từ KiotViet
+  code                String? @unique // Mã doanh nghiệp (auto-generated, vn-bus-xxxxx)
+  prefix              String? @unique // Mã định danh doanh nghiệp (admin-editable)
+
+  // Thông tin cơ bản
+  name        String // Tên đối tác
+  slug        String       @unique // URL thân thiện
+  description String? // Mô tả
+  slogan      String? // Khẩu hiệu
+  logo        String? // Logo
+  banner      String? // Banner
+  avatar      String? // Ảnh đại diện
+  source      OriginSource @default(acta) // Nguồn gốc
+
+  // Thông tin về đối tác
+  type    BusinessType @default(expansion) // Loại đối tác
+  taxCode String? // Mã số thuế
+
+  // Contact information - Thông tin liên hệ
+  email    String // Email
+  phone    String // Số điện thoại
+  website  String? // Website
+  address  String? // Địa chỉ
+  location String? // Vị trí
+
+  // Social media - Mạng xã hội
+  facebook  String? // Facebook
+  instagram String? // Instagram
+
+  // Metrics - Các chỉ số
+  rating       Float  @default(0) // Đánh giá trung bình
+  totalRatings Int    @default(0) // Tổng số đánh giá
+  productCount Int    @default(0) // Số lượng sản phẩm
+  followers    Int    @default(0) // Số người theo dõi
+  responseRate Float  @default(0) // Tỷ lệ phản hồi
+  responseTime String @default("24h") // Thời gian phản hồi
+
+  // Status - Trạng thái
+  verified Boolean  @default(false) // Đã xác minh
+  isActive Boolean  @default(true) // Đang hoạt động
+  joinDate DateTime @default(now()) // Ngày tham gia
+
+  // Relationships - Các mối quan hệ
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  products        Product[]
+  orderDetails    OrderDetail[]
+  invoices        Invoice[]
+  purchaseOrders  PurchaseOrder[]
+  cashflows       Cashflow[]
+  orderBusinesses OrderBusiness[]
+  businessReviews BusinessReview[]
+
+  // Multi-tenant relations (Phase 1)
+  orders    Order[]    @relation("BusinessOrders")
+  carts     Cart[]     @relation("BusinessCarts")
+  customers Customer[] @relation("BusinessCustomers")
+
+  // Warehouse-Business scoping
+  warehouseBusinessScopes WarehouseBusinessScope[]
+
+  // Warehouse Manager Assignment Relations
+  managerAssignments WarehouseManagerAssignment[] @relation("ManagerAssignmentBusiness")
+
+  // Diadiem Relations
+  businessBrands              BusinessBrand[]              @relation("BusinessBrands")
+  businessOffers              VoucherTemplate[]            @relation("BusinessOffers")
+  // ⚠ HỒ SƠ PHÁP LÝ CỦA DOANH NGHIỆP NẰM Ở ĐÂY — mỗi file một dòng, loại giấy
+  // là `docType`. Đừng thêm cột tài liệu vào `businesses` (kiểu mỗi loại giấy
+  // một cột JSONB): không định danh được từng file, không có trạng thái duyệt /
+  // hạn hiệu lực, và thêm loại mới là phải migration.
+  businessComplianceDocs      BusinessComplianceDoc[]
+  businessComplianceChecklist BusinessComplianceChecklist?
+  businessClaims              BusinessClaim[]
+
+  // Phase 37 — halfvec(1024) embedding (catalog-wide scan). Managed via raw migration SQL
+  // (Prisma --create-only). Phase 37 pipeline owns population; unindexed (small table).
+  embedding        Unsupported("halfvec(1024)")?
+  embeddingVersion String?                       @map("embedding_version")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kiotVietTradeMarkId])
+  @@index([name])
+  @@index([slug])
+  @@index([code])
+  @@index([prefix])
+  @@index([isActive])
+  @@index([userId])
+  @@index([source])
+  @@map("businesses")
+}

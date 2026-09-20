@@ -1,0 +1,79 @@
+enum WarehouseManagerAssignmentStatus {
+  pending
+  approved
+  rejected
+  revoked
+  cancelled
+}
+
+enum WarehouseManagerScopeType {
+  warehouse_node // điểm cầu — single warehouse
+  warehouse_group // khu vực — entire group
+  global // tổng hệ thống
+}
+
+model WarehouseManagerAssignment {
+  id               String                               @id @default(cuid())
+  status           WarehouseManagerAssignmentStatus     @default(pending)
+  scopeType        WarehouseManagerScopeType
+  managerId        String // user being assigned
+  manager          User                                 @relation("ManagerAssignmentManager", fields: [managerId], references: [id], onDelete: Cascade)
+  warehouseId      String? // when scopeType = warehouse_node
+  warehouse        Warehouse?                           @relation("ManagerAssignmentWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
+  // Denormalised copy of Warehouse.isCollaboratorWarehouse, kept here because a partial
+  // unique index predicate can only read columns of the table it is built on — it cannot
+  // join to Warehouse. Synced whenever an assignment is created/approved for this warehouse,
+  // and whenever the warehouse's own flag changes through its approval path.
+  isCtvWarehouse   Boolean                              @default(false)
+  warehouseGroupId String? // when scopeType = warehouse_group
+  warehouseGroup   WarehouseGroup?                      @relation("ManagerAssignmentGroup", fields: [warehouseGroupId], references: [id], onDelete: SetNull)
+  businessId       String? // tenant scoping (JWT-derived)
+  business         Business?                            @relation("ManagerAssignmentBusiness", fields: [businessId], references: [id], onDelete: SetNull)
+  requestedById    String
+  requestedBy      User                                 @relation("ManagerAssignmentRequester", fields: [requestedById], references: [id])
+  approvedById     String?
+  approvedBy       User?                                @relation("ManagerAssignmentApprover", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+  rejectedById     String?
+  rejectedBy       User?                                @relation("ManagerAssignmentRejecter", fields: [rejectedById], references: [id])
+  rejectedAt       DateTime?
+  rejectionReason  String?                              @db.Text
+  revokedById      String?
+  revokedBy        User?                                @relation("ManagerAssignmentRevoker", fields: [revokedById], references: [id])
+  revokedAt        DateTime?
+  revokedReason    String?                              @db.Text
+  requestReason    String                               @db.Text
+  approvalNote     String?                              @db.Text
+  effectiveFrom    DateTime                             @default(now())
+  effectiveTo      DateTime? // null = open-ended
+  createdAt        DateTime                             @default(now())
+  updatedAt        DateTime                             @updatedAt
+  auditLogs        WarehouseManagerAssignmentAuditLog[]
+
+  @@index([managerId, status, effectiveFrom, effectiveTo])
+  @@index([warehouseId, status])
+  @@index([warehouseGroupId, status])
+  @@index([businessId, status])
+  @@index([scopeType, status])
+  // Deliberately no Prisma-level unique attribute on isCtvWarehouse/warehouseId here: the
+  // one-manager-per-CTV-warehouse constraint is a raw partial unique index written by hand
+  // in the migration, scoped to approved/open-ended/CTV rows only, and intentionally
+  // invisible to Prisma — do not add one back as a plain column constraint.
+  @@map("warehouse_manager_assignments")
+}
+
+model WarehouseManagerAssignmentAuditLog {
+  id           String                     @id @default(cuid())
+  assignmentId String
+  assignment   WarehouseManagerAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  action       String // 'requested' | 'approved' | 'rejected' | 'revoked' | 'cancelled' | 'updated'
+  actorId      String
+  actor        User                       @relation("ManagerAssignmentAuditActor", fields: [actorId], references: [id])
+  note         String?                    @db.Text
+  metadata     Json?
+  createdAt    DateTime                   @default(now())
+
+  @@index([assignmentId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("warehouse_manager_assignment_audit_logs")
+}

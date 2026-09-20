@@ -1,0 +1,221 @@
+enum HalfWalletStatus {
+  pending
+  admin_processing
+  awaiting_user_confirm
+  verified
+  declined_by_user
+  replaced
+}
+
+enum HalfTransferRequestStatus {
+  pending
+  approved
+  rejected
+}
+
+enum HalfWalletLogActorType {
+  user
+  admin
+  system
+}
+
+model HalfWallet {
+  id                 String           @id @default(uuid())
+  userId             String
+  walletAddress      String
+  userReason         String?
+  status             HalfWalletStatus @default(pending)
+  adminNote          String?
+  adminProofImageUrl String?
+  adminAmountSent    Decimal?         @db.Decimal(36, 18)
+  userProofImageUrl  String?
+  processedBy        String?
+  processedAt        DateTime?
+  deletedAt          DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  user             User                  @relation("UserHalfWallets", fields: [userId], references: [id])
+  transferRequests HalfTransferRequest[]
+  manualsReceived  HalfTransferManual[]  @relation("HalfManualRecipientWallet")
+
+  // Partial unique constraints enforced via raw SQL in migration (see migration steps).
+  // CREATE UNIQUE INDEX half_wallet_user_active_unique ON "HalfWallet"("userId")
+  //   WHERE status IN ('pending','admin_processing','awaiting_user_confirm') AND "deletedAt" IS NULL;
+  // CREATE UNIQUE INDEX half_wallet_user_verified_unique ON "HalfWallet"("userId")
+  //   WHERE status = 'verified' AND "deletedAt" IS NULL;
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([deletedAt])
+  @@map("half_wallets")
+}
+
+model HalfTransferRequest {
+  id                 String                    @id @default(uuid())
+  userId             String
+  halfWalletId       String
+  amountRequested    Decimal                   @db.Decimal(36, 18)
+  userReason         String?
+  status             HalfTransferRequestStatus @default(pending)
+  adminProofImageUrl String?
+  adminReason        String?
+  processedBy        String?
+  processedAt        DateTime?
+  createdAt          DateTime                  @default(now())
+
+  user       User       @relation("UserHalfTransferRequests", fields: [userId], references: [id])
+  halfWallet HalfWallet @relation(fields: [halfWalletId], references: [id])
+
+  // Partial unique: CREATE UNIQUE INDEX half_transfer_user_pending_unique
+  //   ON "HalfTransferRequest"("userId") WHERE status = 'pending';
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("half_transfer_requests")
+}
+
+model HalfTransferManual {
+  id                   String   @id @default(uuid())
+  recipientUserId      String
+  recipientWalletId    String
+  amountSent           Decimal  @db.Decimal(36, 18)
+  proofImageUrl        String
+  sendingWalletAddress String
+  createdBy            String
+  createdAt            DateTime @default(now())
+
+  recipient       User       @relation("HalfManualRecipient", fields: [recipientUserId], references: [id])
+  recipientWallet HalfWallet @relation("HalfManualRecipientWallet", fields: [recipientWalletId], references: [id])
+  createdByUser   User       @relation("HalfManualCreatedBy", fields: [createdBy], references: [id])
+
+  @@index([recipientUserId, createdAt])
+  @@index([createdBy, createdAt])
+  @@map("half_transfer_manuals")
+}
+
+model HalfWalletLog {
+  id         String                 @id @default(uuid())
+  entityType String
+  entityId   String
+  action     String
+  actorId    String?
+  actorType  HalfWalletLogActorType
+  meta       Json?
+  createdAt  DateTime               @default(now())
+
+  actor User? @relation("HalfWalletLogActor", fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@map("half_wallet_logs")
+}
+
+// ==================== TRA CỨU VÍ HALF CHO ĐỐI TÁC ====================
+// Đối tác (halfund.io) gọi `POST /partner/half/wallet-lookup` trước khi chuyển
+// HALF tới một địa chỉ ví. Hai bảng dưới đây là cấu hình hạn mức và sổ ghi mỗi
+// lượt tra cứu. Tra cứu theo địa chỉ ví dùng chỉ mục biểu thức
+// `half_wallets_lower_wallet_address_idx` trên lower("walletAddress") — tạo bằng
+// SQL tay trong migration vì Prisma không khai được chỉ mục biểu thức.
+
+/// Cấu hình hạn mức — chỉ có MỘT dòng, id = 'default'.
+/// Hạn mức của một người = cấp Cổ đông lan tỏa × limitPerLevel.
+model HalfPartnerLookupConfig {
+  id            String   @id @default("default")
+  limitPerLevel Decimal  @default(50000) @db.Decimal(36, 18)
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("half_partner_lookup_configs")
+}
+
+/// Sổ ghi mỗi lượt đối tác tra cứu ví. Chỉ admin đọc; KHÔNG bao giờ trả cho đối tác.
+model HalfPartnerLookupLog {
+  id               String   @id @default(uuid())
+  requestId        String   @unique
+  /// lookup | transfer_confirm
+  action           String   @default("lookup")
+  /// Chỉ có ở lượt báo đã chuyển.
+  txHash           String?
+  partnerId        String?
+  partnerName      String?
+  walletAddress    String
+  amount           String?
+  userId           String?
+  shareholderLevel Int?
+  exist            Boolean
+  eligible         Boolean
+  errorCode        String?
+  httpStatus       Int
+  /// Tổng HALF người dùng đã nhận TẠI LÚC tra cứu — chỉ để đối soát nội bộ.
+  receivedBefore   Decimal? @db.Decimal(36, 18)
+  /// Hạn mức áp cho lượt này (cấp × limitPerLevel tại lúc tra cứu).
+  limitApplied     Decimal? @db.Decimal(36, 18)
+  requestIp        String?
+  durationMs       Int
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([partnerId, createdAt])
+  @@index([userId, createdAt])
+  @@index([errorCode, createdAt])
+  @@index([action, createdAt])
+  @@map("half_partner_lookup_logs")
+}
+
+/// Lượt chuyển HALF do ĐỐI TÁC báo lại sau khi đã chuyển xong
+/// (`POST /partner/half/transfer-confirm`). Lượt `recorded` được cộng vào tổng
+/// HALF đã nhận của người dùng khi tra cứu hạn mức; admin có thể huỷ ghi nhận
+/// (`voided`) nếu đối tác báo nhầm. `status` là String (không enum) để migration
+/// không cần khối CREATE TYPE.
+model HalfPartnerTransfer {
+  id              String    @id @default(uuid())
+  partnerId       String
+  partnerName     String?
+  /// Mã giao dịch trên chuỗi — duy nhất theo từng đối tác (khoá chống báo trùng).
+  txHash          String
+  walletAddress   String
+  userId          String
+  halfWalletId    String
+  amount          Decimal   @db.Decimal(36, 18)
+  /// requestId của lượt tra cứu trước đó (nếu đối tác gửi kèm).
+  lookupRequestId String?
+  transferredAt   DateTime
+  /// Kết quả kiểm tra điều kiện TẠI LÚC báo, trước khi cộng lượt này
+  /// (null = đủ điều kiện). Chỉ để đối soát — lượt chuyển vẫn được ghi.
+  checkErrorCode  String?
+  /// recorded | voided
+  status          String    @default("recorded")
+  voidedAt        DateTime?
+  voidedBy        String?
+  voidReason      String?
+  createdAt       DateTime  @default(now())
+
+  @@unique([partnerId, txHash])
+  @@index([userId, status])
+  @@index([createdAt])
+  @@map("half_partner_transfers")
+}
+
+/// Chứng từ (ảnh) admin BỔ SUNG cho một lượt HALF bất kỳ, vào bất cứ lúc nào —
+/// nhất là lượt đối tác tự chuyển (chỉ có txHash, không có ảnh). Một lượt có
+/// thể có nhiều chứng từ. Không có FK vì `sourceId` trỏ vào 4 bảng khác nhau;
+/// dịch vụ kiểm nguồn có thật trước khi ghi. `userId` = người NHẬN HALF, để
+/// trang HALF của từng người đọc bằng một chỉ mục.
+model HalfTransferAttachment {
+  id         String    @id @default(uuid())
+  /// wallet_verification | transfer_request | manual_transfer | partner_transfer
+  sourceType String
+  sourceId   String
+  userId     String
+  fileUrl    String
+  note       String?
+  uploadedBy String
+  createdAt  DateTime  @default(now())
+  /// Gỡ mềm — chứng từ đã gỡ vẫn nằm lại để đối soát.
+  deletedAt  DateTime?
+  deletedBy  String?
+
+  @@index([sourceType, sourceId])
+  @@index([userId, createdAt])
+  @@map("half_transfer_attachments")
+}

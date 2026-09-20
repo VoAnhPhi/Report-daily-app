@@ -1,0 +1,734 @@
+// ============================================================================
+// DAILY REPORT — Báo cáo công việc hằng ngày
+// Mỗi thành viên của mỗi nhóm (TaskAssignGroup hoặc Team) trả lời bộ 4 câu hỏi
+// cố định mỗi ngày. Bản báo cáo được cron sinh sẵn với isResponse=false và
+// chuyển true khi thành viên nộp.
+// Docs: docs/features/task-management/ (03-data-model.md là đặc tả gốc).
+//
+// Lưu ý namespace: các tên Task/TaskStatus/TaskType đã bị gamification chiếm,
+// nên toàn bộ model ở đây dùng tiền tố DailyReport*.
+// Soft FK (không @relation) cho ownerId/createdById/onBehalfOfId/reopenedById —
+// theo tiền lệ EmployeeCard.issuedBy để không phình thêm back-relation trên User.
+// ============================================================================
+
+/// Loại nhóm mà báo cáo gắn vào.
+enum DailyReportScopeType {
+  assign_group // Nhóm giao việc tự tạo trên màn Công việc
+  team // Đội / phòng ban chính thức
+}
+
+/// Phân loại câu hỏi để bộ máy auto-draft biết cần điền dữ liệu gì.
+/// Thứ tự khai báo BÁM ĐÚNG thứ tự vật lý trong Postgres: bốn giá trị đầu +
+/// `custom` do `20260814000000_daily_report_core` tạo, `done`/`blocked` được
+/// `ALTER TYPE ... ADD VALUE` nối vào cuối ở `20260825000000`. Sắp lại theo thứ
+/// tự nghiệp vụ sẽ làm bản schema lệch với DB dựng từ migration.
+enum DailyReportQuestionKind {
+  /// ── Đã NGỪNG sinh mới từ 25/08/2026 ──────────────────────────────────────
+  /// Giữ trong enum vì `daily_report_answers.questionKind` là BẢN CHỤP: mọi báo
+  /// cáo đã nộp từ 14/08 tới 25/08 đang mang hai giá trị này. Bỏ khỏi enum là
+  /// làm hỏng toàn bộ lịch sử.
+  today // cũ 1. Hôm nay làm những gì        → nay tách vai cho `done`
+  done_blocked // cũ 2. Đã xong - tồn đọng   → nay tách đôi thành `done` + `blocked`
+
+  /// ── Bộ 4 câu hiện hành ───────────────────────────────────────────────────
+  need_help // 3. Yêu cầu hỗ trợ
+  tomorrow // 4. Công việc dự kiến ngày mai
+  custom // Câu hỏi riêng do trưởng nhóm thêm
+  done // 1. Những việc đã hoàn thành
+  blocked // 2. Những việc còn tồn đọng
+}
+
+enum DailyReportStatus {
+  DRAFT
+  SUBMITTED
+  REOPENED
+  ARCHIVED
+}
+
+enum DailyReportHelpRequestStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  CANCELLED
+}
+
+enum DailyReportOutboxStatus {
+  PENDING
+  RETRYING
+  SENT
+  DEAD
+  EXPIRED
+}
+
+enum DailyReportDeliveryChannel {
+  IN_APP
+  EMAIL
+}
+
+enum DailyReportEmailTemplateKey {
+  DAILY_REPORT_READY
+  DAILY_REPORT_REMINDER
+  DAILY_REPORT_LEADER_SUMMARY
+}
+
+enum DailyReportEmailTemplateStatus {
+  DRAFT
+  PUBLISHED
+  INACTIVE
+}
+
+enum DailyReportOutboxKind {
+  REPORT_READY
+  MEMBER_REMINDER
+  LEADER_MISSING_SUMMARY
+  REPORT_SUBMITTED
+  REPORT_REOPENED
+  HELP_REQUESTED
+  HELP_ACKNOWLEDGED
+  HELP_RESOLVED
+  HELP_CANCELLED
+  REPORT_ACCEPTED
+  REPORT_CONTINUED
+  REPORT_REJECTED
+  REVIEWER_PENDING_REVIEW_SUMMARY
+  REVIEWER_ASSIGNED
+}
+
+/// Kết luận của người duyệt trên MỘT lần nộp.
+///
+/// "Quá hạn duyệt" KHÔNG nằm ở đây: không ai ra quyết định đó cả, nó là hệ quả
+/// của thời gian trôi qua nên được ghi bằng mốc `reviewExpiredAt`.
+enum DailyReportReviewDecision {
+  ACCEPTED
+  CONTINUED
+  REJECTED
+}
+
+/// Bộ câu hỏi báo cáo. Đúng một bản isSystemDefault=true = 4 câu của ban lãnh đạo.
+model DailyReportTemplate {
+  id          String  @id @default(uuid())
+  name        String
+  description String? @db.Text
+
+  // Bộ 4 câu mặc định của hệ thống — không xóa được, không sửa câu lõi.
+  isSystemDefault Boolean @default(false)
+
+  // Chủ sở hữu (null = bộ của hệ thống). Soft FK → User.id.
+  ownerId String?
+
+  questions DailyReportQuestion[]
+  versions  DailyReportTemplateVersion[]
+  scopes    DailyReportScope[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([ownerId])
+  @@index([deletedAt])
+  @@map("daily_report_templates")
+}
+
+/// Một phiên bản bất biến của template. Mọi report khóa version ngay khi sinh.
+model DailyReportTemplateVersion {
+  id         String              @id @default(uuid())
+  templateId String
+  template   DailyReportTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  version    Int
+
+  nameSnapshot        String
+  descriptionSnapshot String?  @db.Text
+  createdById         String?
+  publishedAt         DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  questions    DailyReportQuestion[]
+  scopeCurrent DailyReportScope[]    @relation("ScopeCurrentTemplateVersion")
+  reports      DailyReport[]         @relation("ReportTemplateVersion")
+
+  @@unique([templateId, version])
+  @@index([templateId, publishedAt])
+  @@map("daily_report_template_versions")
+}
+
+/// Một câu hỏi trong bộ. kind là mã máy đọc; label là chữ hiển thị.
+model DailyReportQuestion {
+  id         String              @id @default(uuid())
+  templateId String
+  template   DailyReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  // Nullable trong giai đoạn backfill; migration mới sẽ gán version 1 cho dữ liệu cũ.
+  templateVersionId String?
+  templateVersion   DailyReportTemplateVersion? @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
+
+  kind          DailyReportQuestionKind
+  label         String
+  hint          String?
+  isRequired    Boolean                 @default(true)
+  allowTaskLink Boolean                 @default(true)
+  sortOrder     Int
+  // true với 4 câu gốc — tầng nghiệp vụ chặn xóa/sửa nhãn.
+  isCore        Boolean                 @default(false)
+
+  answers DailyReportAnswer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([templateVersionId, sortOrder])
+  @@index([templateId])
+  @@index([templateVersionId, sortOrder])
+  @@map("daily_report_questions")
+}
+
+/// Bật báo cáo hằng ngày cho một nhóm giao việc HOẶC một đội.
+/// Ràng buộc loại trừ (đúng một trong assignGroupId/teamId) được đảm bảo bằng
+/// CHECK constraint SQL thô trong migration + kiểm tra ở tầng nghiệp vụ.
+model DailyReportScope {
+  id        String               @id @default(uuid())
+  scopeType DailyReportScopeType
+
+  assignGroupId String?
+  assignGroup   TaskAssignGroup? @relation(fields: [assignGroupId], references: [id], onDelete: SetNull)
+
+  teamId String?
+  team   Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  templateId String
+  template   DailyReportTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  currentTemplateVersionId String?
+  currentTemplateVersion   DailyReportTemplateVersion? @relation("ScopeCurrentTemplateVersion", fields: [currentTemplateVersionId], references: [id], onDelete: Restrict)
+
+  isEnabled Boolean @default(true)
+
+  // Giờ sinh report cố định 07:30; ba mốc còn lại cấu hình theo scope.
+  cutoffMinute          Int     @default(1380)
+  remindMinutes         Int[]   @default([390])
+  reminderBeforeMinutes Int     @default(390)
+  // Giá trị legacy canonical của mốc leader summary 17:20.
+  leaderSummaryMinute   Int     @default(1040)
+  // 1 = thứ Hai … 7 = Chủ nhật (ISO-8601).
+  weekdays              Int[]   @default([1, 2, 3, 4, 5, 6])
+  timezone              String  @default("Asia/Ho_Chi_Minh")
+  // Báo trưởng nhóm khi có người chưa nộp tại mốc tổng hợp.
+  notifyLeaderOnMissing Boolean @default(true)
+
+  // Số ngày làm việc của cửa sổ duyệt, TÍNH CẢ ngày nộp.
+  // Đổi giá trị chỉ áp cho lần nộp sau đó: hạn đã chốt cứng vào
+  // DailyReportRevision.reviewDeadlineAt ngay lúc submit.
+  reviewWindowDays Int @default(3)
+
+  // Ai đã bật. Soft FK → User.id.
+  createdById String
+
+  // Snapshot để vẫn render lịch sử sau khi target bị xóa.
+  targetIdSnapshot   String?
+  targetNameSnapshot String?
+  archivedAt         DateTime?
+  archivedById       String?
+  purgedAt           DateTime?
+  purgeReportCount   Int       @default(0)
+  purgeAnswerCount   Int       @default(0)
+
+  reports        DailyReport[]
+  kpis           DailyReportKpi[]
+  archiveViewers DailyReportScopeArchiveViewer[]
+  reviewGroups   DailyReportReviewGroup[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isEnabled])
+  @@index([assignGroupId])
+  @@index([teamId])
+  @@index([deletedAt])
+  @@index([archivedAt, purgedAt])
+  @@map("daily_report_scopes")
+}
+
+/// Một bản báo cáo: một người × một ngày × một nhóm.
+model DailyReport {
+  id      String           @id @default(uuid())
+  scopeId String
+  scope   DailyReportScope @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  userId String
+  user   User   @relation("UserDailyReports", fields: [userId], references: [id], onDelete: Restrict)
+
+  // Ngày làm việc theo giờ Việt Nam — kiểu DATE để unique hoạt động đúng.
+  reportDate DateTime @db.Date
+
+  status DailyReportStatus @default(DRAFT)
+
+  templateVersionId String?
+  templateVersion   DailyReportTemplateVersion? @relation("ReportTemplateVersion", fields: [templateVersionId], references: [id], onDelete: Restrict)
+
+  // Snapshot nghĩa vụ báo cáo tại thời điểm worker sinh report.
+  participantSnapshotAt DateTime @default(now())
+
+  // Đã nộp hay chưa — theo đúng yêu cầu ban lãnh đạo (mặc định false).
+  isResponse       Boolean   @default(false)
+  submittedAt      DateTime?
+  firstSubmittedAt DateTime?
+  lastSubmittedAt  DateTime?
+  // Lần sửa gần nhất sau khi nộp.
+  lastEditedAt     DateTime?
+  isLate           Boolean   @default(false)
+
+  // Người thực hiện thay (làm thay). Soft FK → User.id.
+  onBehalfOfId   String?
+  lastEditedById String?
+  submittedById  String?
+
+  // Trưởng nhóm mở lại bản đã nộp. Soft FK → User.id.
+  reopenedById String?
+  reopenedAt   DateTime?
+  reopenReason String?   @db.Text
+
+  // Dedupe cron nhắc nhở — cùng khuôn dueSoonNotifiedAt của BusinessFormTask.
+  remindedAt       DateTime?
+  leaderNotifiedAt DateTime?
+
+  // ── CỤM VÒNG DUYỆT ────────────────────────────────────────────────────────
+  // Bản denormalize của revision MỚI NHẤT. Nguồn sự thật là DailyReportReview
+  // (kết luận) và DailyReportRevision (hạn + mốc hết hạn).
+  //
+  // Cả cụm được ghi khi duyệt và ĐẶT LẠI khi member nộp lại — nhưng KHÔNG
+  // giống nhau: sáu cột đầu về null, còn reviewDeadlineAt nhận hạn của
+  // revision MỚI. Để nó về null là vòng duyệt mới không có hạn và cron không
+  // bao giờ đóng được. Xem thiết kế mục 7.11.
+  reviewDecision         DailyReportReviewDecision?
+  reviewedById           String?
+  reviewedAt             DateTime?
+  reviewedRevisionNumber Int?
+  // Cửa sổ sửa người duyệt mở thêm. Đây là NGOẠI LỆ DUY NHẤT của hard stop
+  // cutoffMinute — contract 15 mục 3.
+  editableUntil          DateTime?
+  reviewExpiredAt        DateTime?
+  reviewDeadlineAt       DateTime?
+  // ──────────────────────────────────────────────────────────────────────────
+
+  answers         DailyReportAnswer[]
+  revisions       DailyReportRevision[]
+  helpRequests    DailyReportHelpRequest[]
+  kpiAchievements DailyReportKpiAchievement[]
+  reviews         DailyReportReview[]
+  carryOversFrom  DailyReportCarryOver[]      @relation("CarryOverFromReport")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([scopeId, userId, reportDate])
+  @@index([userId, reportDate])
+  @@index([scopeId, reportDate, isResponse])
+  @@index([scopeId, reportDate, status])
+  @@index([templateVersionId])
+  @@index([deletedAt])
+  // Cron quét báo cáo hết cửa sổ duyệt.
+  @@index([reviewDeadlineAt])
+  @@map("daily_reports")
+}
+
+/// Danh mục KPI dạng checklist của từng phạm vi báo cáo.
+model DailyReportKpi {
+  id          String           @id @default(uuid())
+  scopeId     String
+  scope       DailyReportScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+  name        String
+  description String?          @db.Text
+  sortOrder   Int              @default(0)
+  isActive    Boolean          @default(true)
+  createdById String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  archivedAt  DateTime?
+
+  achievements DailyReportKpiAchievement[]
+
+  @@index([scopeId, isActive, sortOrder])
+  @@map("daily_report_kpis")
+}
+
+/// KPI do thành viên chủ động xác nhận đã đạt trong một báo cáo.
+/// nameSnapshot giữ lịch sử ổn định khi danh mục KPI được sửa/ngừng dùng.
+model DailyReportKpiAchievement {
+  id           String         @id @default(uuid())
+  reportId     String
+  report       DailyReport    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  kpiId        String
+  kpi          DailyReportKpi @relation(fields: [kpiId], references: [id], onDelete: Restrict)
+  nameSnapshot String
+  selectedById String
+  createdAt    DateTime       @default(now())
+
+  @@unique([reportId, kpiId])
+  @@index([kpiId, reportId])
+  @@map("daily_report_kpi_achievements")
+}
+
+/// Một câu trả lời. questionLabel/questionKind được CHỤP LẠI tại thời điểm tạo
+/// để báo cáo cũ giữ nguyên câu hỏi dù trưởng nhóm sửa bộ câu hỏi về sau.
+model DailyReportAnswer {
+  id       String      @id @default(uuid())
+  reportId String
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  questionId String
+  question   DailyReportQuestion @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  questionKind          DailyReportQuestionKind
+  questionLabel         String
+  sortOrder             Int
+  questionHint          String?
+  questionIsRequired    Boolean                 @default(true)
+  questionAllowTaskLink Boolean                 @default(true)
+
+  content       String  @default("") @db.Text
+  // Còn nguyên nội dung hệ thống gợi ý (người dùng chưa sửa).
+  isAutoDrafted Boolean @default(true)
+
+  // Soft FK → BusinessFormTask.id (tiền lệ mentionedUserIds).
+  linkedTaskIds    String[] @default([])
+  mentionedUserIds String[] @default([])
+  // Cùng khuôn [{ id, name, url }] với attachments của công việc.
+  attachments      Json     @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reportId, questionId])
+  @@index([reportId])
+  @@map("daily_report_answers")
+}
+
+/// Bản submit bất biến; reopen/resubmit tạo revision mới thay vì ghi đè lịch sử.
+model DailyReportRevision {
+  id              String      @id @default(uuid())
+  reportId        String
+  report          DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  revisionNumber  Int
+  submittedById   String
+  submittedAt     DateTime    @default(now())
+  isFirstSubmit   Boolean     @default(false)
+  isLate          Boolean     @default(false)
+  answersSnapshot Json
+  reopenReason    String?     @db.Text
+  createdAt       DateTime    @default(now())
+
+  // NGUỒN SỰ THẬT của vòng duyệt gắn với chính lần nộp này.
+  //
+  // reviewDeadlineAt chốt cứng TẠI THỜI ĐIỂM SUBMIT từ scope.reviewWindowDays.
+  // Mọi đường đọc phải đọc cột này, KHÔNG tính lại từ scope: reviewWindowDays
+  // đổi được, tính lại lúc đọc là kéo dài hoặc giết hàng loạt vòng duyệt đang
+  // chạy. Xem thiết kế mục 6.5.
+  //
+  // reviewExpiredAt do cron ghi và KHÔNG bị xoá khi member nộp lại — đó là
+  // lịch sử, thứ trả lời được câu "lần nộp này quá hạn hay bị trả lại".
+  reviewDeadlineAt DateTime?
+  reviewExpiredAt  DateTime?
+
+  review DailyReportReview?
+
+  @@unique([reportId, revisionNumber])
+  @@index([reportId, submittedAt])
+  @@map("daily_report_revisions")
+}
+
+/// Kết luận của người duyệt trên MỘT lần nộp.
+///
+/// `@unique` trên revisionId là thứ chốt race giữa nhiều người duyệt, không cần
+/// lock ở tầng app: người thứ hai vỡ unique và nhận 409.
+///
+/// Race với cron đánh dấu hết hạn thì unique này KHÔNG với tới, vì hai bên ghi
+/// hai cột khác nhau — chỗ đó phải compare-and-set. Xem thiết kế mục 7.7.
+model DailyReportReview {
+  id         String              @id @default(uuid())
+  reportId   String
+  report     DailyReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  revisionId String              @unique
+  revision   DailyReportRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  // Soft FK → User.id, theo tiền lệ reopenedById.
+  reviewerId String
+  decision   DailyReportReviewDecision
+  comment    String?                   @db.Text
+  createdAt  DateTime                  @default(now())
+
+  // Dòng carry do CHÍNH lượt duyệt này tạo ra.
+  carryOvers          DailyReportCarryOver[] @relation("CarryOverCreatedByReview")
+  // Dòng carry có sẵn mà lượt này XÁC NHẬN thay vì tạo dòng thứ hai: dòng member
+  // tự kéo, hoặc dòng do lượt duyệt trước của cùng báo cáo tạo. Phase 05.
+  confirmedCarryOvers DailyReportCarryOver[] @relation("CarryOverConfirmedByReview")
+
+  @@index([reportId, createdAt])
+  @@index([reviewerId, createdAt])
+  @@map("daily_report_reviews")
+}
+
+/// Một dòng công việc được chuyển sang ngày làm việc kế tiếp.
+///
+/// Hai nguồn tạo: người duyệt (lượt duyệt `CONTINUED`, `reviewId` khác null) và
+/// chính chủ báo cáo tự kéo việc của mình (phase 05, `reviewId` null).
+///
+/// chainId là định danh CHUỖI chuyển tiếp, ổn định qua nhiều ngày. Không dùng
+/// taskId làm khóa chuỗi: việc gõ tay không có taskId mà vẫn phải đếm được số
+/// LẦN đã chuyển tiếp.
+///
+/// reviewId là thứ phân biệt nguồn gốc dòng carry, nên onDelete phải là Cascade
+/// chứ KHÔNG phải SetNull — SetNull làm nó âm thầm mất nghĩa.
+model DailyReportCarryOver {
+  id           String             @id @default(uuid())
+  chainId      String             @default(uuid())
+  fromReportId String
+  fromReport   DailyReport        @relation("CarryOverFromReport", fields: [fromReportId], references: [id], onDelete: Cascade)
+  toReportDate DateTime           @db.Date
+  reviewId     String?
+  review       DailyReportReview? @relation("CarryOverCreatedByReview", fields: [reviewId], references: [id], onDelete: Cascade)
+
+  // Lượt duyệt đã XÁC NHẬN dòng này thay vì tạo dòng thứ hai (phase 05, phương
+  // án A). Cột riêng chứ không ghi vào `reviewId`: nhờ vậy `reviewId != null`
+  // vẫn đúng một nghĩa "dòng do người duyệt tạo", dữ liệu P1 không phải đọc lại.
+  // SetNull chứ không Cascade: mất một lần xác nhận không được kéo theo mất ý
+  // định của member.
+  confirmedByReviewId String?
+  confirmedByReview   DailyReportReview? @relation("CarryOverConfirmedByReview", fields: [confirmedByReviewId], references: [id], onDelete: SetNull)
+
+  // Soft FK → BusinessFormTask.id; null = việc gõ tay.
+  taskId      String?
+  // Bắt buộc khi mở một chuỗi thủ công mới. Khi nối tiếp một dòng đã có
+  // (continuesCarryOverId) thì kế thừa nội dung của dòng đó.
+  note        String?   @db.Text
+  createdById String
+  createdAt   DateTime  @default(now())
+  cancelledAt DateTime?
+
+  @@index([fromReportId])
+  // Dựng gợi ý cho báo cáo ngày đích.
+  @@index([toReportDate, cancelledAt])
+  // Nối chuỗi tự động cho việc có gắn task.
+  @@index([taskId, toReportDate])
+  // Đếm số lần đã chuyển tiếp của một chuỗi.
+  @@index([chainId, toReportDate])
+  // Postgres không tự tạo index cho cột FK: thiếu hai index này thì mỗi review
+  // bị xoá (cron dọn phạm vi lưu trữ quá hạn) là một lượt quét cả bảng cho
+  // ON DELETE CASCADE và một lượt nữa cho ON DELETE SET NULL.
+  @@index([reviewId])
+  @@index([confirmedByReviewId])
+  @@map("daily_report_carry_overs")
+}
+
+/// NHÓM DUYỆT có tên: một cụm thành viên và những người duyệt phụ trách cụm đó.
+///
+/// Thay cho bảng phân công từng cặp (người duyệt, thành viên) của bản đầu. Lý
+/// do đổi: trưởng nhóm chia nhóm theo miền, theo ca, theo dự án — cách chia đó
+/// có TÊN, và cái tên là thứ họ đọc để biết mình vừa chia đúng chưa. Lưu theo
+/// cặp thì tên không có chỗ nào để ở, và cùng một cụm người phải nhập lại cho
+/// từng người duyệt.
+///
+/// Ba bảng chứ không một: một nhóm có NHIỀU người duyệt (nghỉ phép thì người
+/// còn lại vẫn duyệt), và một thành viên thuộc được NHIỀU nhóm (vừa theo miền
+/// vừa theo dự án). Quan hệ (người duyệt × thành viên) vì thế là hệ quả suy ra
+/// từ hai bảng nối, KHÔNG phải một bảng thứ ba phải giữ đồng bộ.
+///
+/// Quản lý chính KHÔNG có mặt ở đây: họ duyệt được toàn bộ thành viên theo định
+/// nghĩa (`canReviewReport`). Thành viên không thuộc nhóm duyệt nào thì chỉ
+/// quản lý chính duyệt bản của họ.
+model DailyReportReviewGroup {
+  id      String           @id @default(uuid())
+  scopeId String
+  scope   DailyReportScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  /// Tên nhóm do trưởng nhóm đặt, ví dụ "Miền Nam". Không trùng nhau trong
+  /// cùng một phạm vi (service kiểm không phân biệt hoa thường, dưới khoá
+  /// advisory theo phạm vi).
+  name String @db.VarChar(60)
+
+  // Soft FK → User.id.
+  createdById String
+  updatedById String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reviewers DailyReportReviewGroupReviewer[]
+  members   DailyReportReviewGroupMember[]
+
+  @@index([scopeId])
+  @@map("daily_report_review_groups")
+}
+
+/// Người duyệt phụ của một nhóm duyệt. BẮT BUỘC là thành viên của phạm vi
+/// (luật 12/09/2026) — rời nhóm giao việc là mất quyền duyệt ngay, xem
+/// `hasReviewerAssignment`. Vẫn là soft FK vì `users` không có khoá ngoại nào
+/// trỏ tới phạm vi báo cáo.
+model DailyReportReviewGroupReviewer {
+  groupId String
+  group   DailyReportReviewGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  // Soft FK → User.id.
+  reviewerId String
+  addedById  String
+  createdAt  DateTime @default(now())
+
+  @@id([groupId, reviewerId])
+  // Dựng rail phạm vi và danh sách phải duyệt của một người duyệt.
+  @@index([reviewerId])
+  @@map("daily_report_review_group_reviewers")
+}
+
+/// Thành viên được một nhóm duyệt phụ trách. Một người thuộc được nhiều nhóm.
+model DailyReportReviewGroupMember {
+  groupId String
+  group   DailyReportReviewGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  // Soft FK → User.id. Bắt buộc là thành viên của phạm vi lúc được thêm.
+  memberId  String
+  addedById String
+  createdAt DateTime @default(now())
+
+  @@id([groupId, memberId])
+  // Fan-out thông báo nộp bài: ai duyệt thành viên này.
+  @@index([memberId])
+  @@map("daily_report_review_group_members")
+}
+
+model DailyReportHelpRequest {
+  id               String                       @id @default(uuid())
+  reportId         String
+  report           DailyReport                  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  answerId         String?
+  requesterId      String
+  status           DailyReportHelpRequestStatus @default(OPEN)
+  content          String                       @db.Text
+  linkedTaskIds    String[]                     @default([])
+  mentionedUserIds String[]                     @default([])
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  resolvedById     String?
+  resolvedAt       DateTime?
+  cancelledById    String?
+  cancelledAt      DateTime?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  @@index([reportId, status])
+  @@index([requesterId, status])
+  @@map("daily_report_help_requests")
+}
+
+/// Những người được quyền xem board/summary của scope sau khi archive.
+model DailyReportScopeArchiveViewer {
+  scopeId   String
+  scope     DailyReportScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+  userId    String
+  role      String
+  createdAt DateTime         @default(now())
+
+  @@id([scopeId, userId])
+  @@index([userId])
+  @@map("daily_report_scope_archive_viewers")
+}
+
+/// Lịch sử membership của nhóm giao việc để worker catch-up vẫn tái tạo đúng
+/// danh sách nghĩa vụ tại 07:30 dù member đã vào/rời trong lúc worker ngừng.
+model DailyReportAssignGroupMembershipPeriod {
+  id        String    @id @default(uuid())
+  groupId   String
+  userId    String
+  isOwner   Boolean   @default(false)
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([groupId, joinedAt, leftAt])
+  @@index([userId, joinedAt, leftAt])
+  @@map("daily_report_assign_group_membership_periods")
+}
+
+/// Outbox đảm bảo notification retry/idempotent giữa nhiều worker replica.
+model DailyReportNotificationOutbox {
+  id                String                     @id @default(uuid())
+  idempotencyKey    String                     @unique
+  kind              DailyReportOutboxKind
+  channel           DailyReportDeliveryChannel @default(IN_APP)
+  status            DailyReportOutboxStatus    @default(PENDING)
+  recipientId       String
+  actorId           String?
+  scopeId           String?
+  reportId          String?
+  payload           Json
+  emailTo           String?
+  emailSubject      String?
+  emailHtml         String?                    @db.Text
+  templateVersionId String?
+  attempts          Int                        @default(0)
+  nextAttemptAt     DateTime                   @default(now())
+  expiresAt         DateTime?
+  sentAt            DateTime?
+  lastError         String?                    @db.Text
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([scopeId, createdAt])
+  @@index([reportId, createdAt])
+  @@map("daily_report_notification_outbox")
+}
+
+/// Ba mẫu email hệ thống Daily Report; admin chỉ sửa nội dung, không sửa key/lịch.
+model DailyReportEmailTemplate {
+  id               String                            @id @default(uuid())
+  systemKey        DailyReportEmailTemplateKey       @unique
+  status           DailyReportEmailTemplateStatus    @default(DRAFT)
+  draftSubject     String
+  draftContent     String                            @db.Text
+  draftQuillDelta  Json?
+  draftRevision    Int                               @default(1)
+  currentVersionId String?                           @unique
+  currentVersion   DailyReportEmailTemplateVersion?  @relation("CurrentDailyReportEmailVersion", fields: [currentVersionId], references: [id], onDelete: Restrict)
+  versions         DailyReportEmailTemplateVersion[] @relation("DailyReportEmailVersions")
+  audits           DailyReportEmailTemplateAudit[]
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime                          @default(now())
+  updatedAt        DateTime                          @updatedAt
+
+  @@index([status])
+  @@map("daily_report_email_templates")
+}
+
+model DailyReportEmailTemplateAudit {
+  id         String                   @id @default(uuid())
+  templateId String
+  template   DailyReportEmailTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  action     String
+  actorId    String
+  metadata   Json?
+  createdAt  DateTime                 @default(now())
+
+  @@index([templateId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("daily_report_email_template_audits")
+}
+
+/// Version đã publish là bất biến; outbox pin id và nội dung render khi enqueue.
+model DailyReportEmailTemplateVersion {
+  id            String                    @id @default(uuid())
+  templateId    String
+  template      DailyReportEmailTemplate  @relation("DailyReportEmailVersions", fields: [templateId], references: [id], onDelete: Restrict)
+  currentFor    DailyReportEmailTemplate? @relation("CurrentDailyReportEmailVersion")
+  version       Int
+  subject       String
+  content       String                    @db.Text
+  quillDelta    Json?
+  publishedById String
+  publishedAt   DateTime                  @default(now())
+  createdAt     DateTime                  @default(now())
+
+  @@unique([templateId, version])
+  @@index([templateId, publishedAt])
+  @@map("daily_report_email_template_versions")
+}

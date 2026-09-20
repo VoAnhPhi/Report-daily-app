@@ -1,0 +1,30 @@
+model LinkMeeting {
+  id          String   @id @default(uuid())
+  title       String?
+  link        String
+  password    String?
+  timeMeeting DateTime
+  endMeeting  DateTime
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attendances LinkMeetingAttendance[]
+  createdBy   User?                   @relation("LinkMeetingsCreated", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@map("link_meetings")
+}
+
+model LinkMeetingAttendance {
+  id            String   @id @default(uuid())
+  linkMeetingId String
+  userId        String?
+  fullName      String?
+  phoneNumber   String?
+  attendedAt    DateTime @default(now())
+
+  linkMeeting LinkMeeting @relation(fields: [linkMeetingId], references: [id], onDelete: Cascade)
+  user        User?       @relation("UserAttendances", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("link_meeting_attendances")
+}

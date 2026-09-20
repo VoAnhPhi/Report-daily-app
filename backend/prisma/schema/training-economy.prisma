@@ -1,0 +1,518 @@
+// VIDEO RÈN LUYỆN ECONOMY (v1.5 Phase 50) — platform-global (D-5: NO businessId),
+// VND amounts are Int (§12). The training VND wallet/ledger is FULLY ISOLATED from
+// AffiliateWallet + ActivityPointTransaction + UserActivityStats + Điểm Năng Lực/leaderboards
+// (D-3/D-6) — no FK or field references any of them.
+
+// ==================== ENUMS ====================
+
+enum TrainingWalletTxnType {
+  earn
+  withdraw_hold
+  withdraw_refund
+  overflow_disbursement // P69 — nightly over-cap pot payout; NOT counted by dailyEarnSum/dailyEarnCount (type='earn' filter)
+  salary_reset // P81 — salary voucher accept zero-out
+  couple_reset // front-load P85 two-wallet coupling, unused in P81
+}
+
+enum TrainingWithdrawalStatus {
+  pending
+  approved
+  rejected
+  completed
+}
+
+// ==================== LEVEL CONFIG ====================
+// Admin-managed level table. L1/L2 are readonly seeds; L3+ are admin-configurable.
+// recognizedSince = downline cổ đông recognizedAt cutoff (seeded 2026-06-01).
+
+model TrainingLevelConfig {
+  id                       String   @id @default(uuid())
+  level                    Int      @unique
+  name                     String?
+  requiresShareholderTitle Boolean  @default(false)
+  f1Threshold              Int      @default(0)
+  f2Threshold              Int      @default(0)
+  moneyPerViewVnd          Int
+  isDefault                Boolean  @default(false)
+  recognizedSince          DateTime
+  dailyRewardCapAmount     Int? // P66 D-01 — trần thưởng/ngày của cấp này; null = KHÔNG giới hạn (không seed); admin cấu hình qua P67
+  overflowAccrualAmountVnd Int? // P69 D-02 — tiền VND tích lũy/lượt vượt trần theo cấp; null = không tích lũy (mirrors P66 D-01 null=no-cap; no seed)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("training_level_configs")
+}
+
+// ==================== LEVEL-UP HISTORY (Phase 94) ====================
+// Durable record of every training-level UPGRADE (old < new). Written by the
+// noon sweep (TrainingLevelService.applyEvaluatedLevel, the SOLE trainingLevel
+// writer) and DRAINED by the 13:30 VN celebration cron, which broadcasts the
+// 'trainingLevelUpNew' socket event → acta.vn "CHÚC MỪNG! Lên Cấp Độ Rèn Luyện
+// Mới" modal. Staggered to 13:30 so it never overlaps the 12:00 Cổ Đông modal.
+// Platform-global (D-5: NO businessId). Upgrades ONLY — same-level / downgrades
+// are NOT recorded. `notifiedAt` null = chưa phát; set once the cron broadcasts.
+model TrainingLevelChange {
+  id         String    @id @default(uuid())
+  userId     String
+  fromLevel  Int
+  toLevel    Int
+  changedAt  DateTime  @default(now())
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([notifiedAt])
+  @@index([userId])
+  @@map("training_level_changes")
+}
+
+// ==================== WALLET ====================
+// Separate from AffiliateWallet (D-3 isolation). One wallet per user, auto-created on
+// first earn. All amounts in VND (Int — §12). No link to leaderboard / capabilityScore.
+
+model TrainingWallet {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation("UserTrainingWallet", fields: [userId], references: [id], onDelete: Cascade)
+
+  balanceVnd        Int @default(0)
+  totalEarnedVnd    Int @default(0)
+  totalWithdrawnVnd Int @default(0)
+  frozenVnd         Int @default(0)
+
+  transactions TrainingWalletTxn[]         @relation("WalletTxns")
+  withdrawals  TrainingWithdrawalRequest[] @relation("WalletWithdrawals")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("training_wallets")
+}
+
+// ==================== LEDGER ====================
+// VND ledger = single authority (NOT ActivityPointTransaction — D-3/D-6 isolation).
+// 100/day cap = COUNT(earn, createdAt >= startOfVietnamDay) <= 100.
+// videoId is a bare scalar (no FK back-relation) — deletion-safe, audit-log shape.
+
+model TrainingWalletTxn {
+  id              String                @id @default(uuid())
+  walletId        String
+  wallet          TrainingWallet        @relation("WalletTxns", fields: [walletId], references: [id], onDelete: Cascade)
+  userId          String
+  videoId         String? // bare scalar — no FK back-relation (deletion-safe audit shape)
+  amountVnd       Int
+  type            TrainingWalletTxnType
+  sourceName      String? // video-title snapshot for watch-history rows
+  // Rate snapshots captured at award time so the watch-history breakdown stays
+  // exact even if admin later changes the level rate / video hệ số
+  // (amountVnd = moneyPerViewVnd × coefficient). Nullable: legacy pre-snapshot
+  // rows fall back to the video's CURRENT pointsReward.
+  moneyPerViewVnd Int? // level's moneyPerViewVnd at award time
+  coefficient     Int? // video.pointsReward (hệ số) at award time
+
+  // Phase 80 (Q2 planner decision, WALLET-04/COUPLE-02) — coupling/reset idempotency key on the training book
+  // (e.g. couple:<withdrawalId>:zero-training), symmetric to AffiliateWithdrawal.sourceRef. A partial UNIQUE index
+  // `uq_training_wallet_txn_source_ref` ON ("sourceRef") WHERE "sourceRef" IS NOT NULL is maintained via the raw
+  // migration (Plan 03) — Prisma 6 cannot express WHERE-filtered uniques. Do NOT add a Prisma-7 partial-index attribute.
+  sourceRef String?
+
+  breakdown TrainingWalletTxnBreakdown? // P66 D-08 — 1:1 nullable sibling; relation owned by the breakdown side
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt]) // per-day 100-cap COUNT + watch-history
+  @@index([walletId])
+  @@map("training_wallet_txns")
+}
+
+// ==================== REWARD-CAP BREAKDOWN (v1.5 Phase 66) ====================
+// D-08: 1:1 nullable sibling of TrainingWalletTxn holding the 11 RC §12 reward-calc
+// breakdown fields — keeps the TrainingWalletTxn ledger lean + legacy rows sparse, and
+// leaves the §22 history identity (amountVnd = moneyPerViewVnd × coefficient) untouched.
+// Written in the same array-form creditEarn $transaction (§20). Platform-global (D-5): NO
+// businessId. id @default(uuid()) per the training family convention (NOT cuid). 1:1 idiom
+// mirrors DiemCauReviewEdit: this side owns the FK + onDelete: Cascade.
+model TrainingWalletTxnBreakdown {
+  id                  String            @id @default(uuid())
+  trainingWalletTxnId String            @unique // 1:1 backbone (D-08)
+  trainingWalletTxn   TrainingWalletTxn @relation(fields: [trainingWalletTxnId], references: [id], onDelete: Cascade)
+
+  // The 11 RC §12 breakdown fields (D-08) — the layered reward calc, snapshot at award time
+  baseRewardAmount               Int // base = moneyPerViewVnd của cấp
+  effectiveMultiplier            Int // hệ số đã áp (P53 gate: level >= minLevelForMultiplier ? hệ-số : 1)
+  calculatedRewardAmount         Int // base × effectiveMultiplier (trước mọi trần)
+  videoRewardCapEnabled          Boolean // snapshot rewardCapEnabled của video
+  videoRewardCapAmount           Int? // snapshot rewardCapAmount (null khi tắt)
+  rewardAfterVideoCap            Int // min(calculated, videoRewardCapAmount) nếu bật, ngược lại = calculated
+  dailyRewardCapAmount           Int? // snapshot trần ngày của cấp (null = không giới hạn)
+  dailyEarnedBeforeCompletion    Int // tổng đã nhận trong ngày VN TRƯỚC lần hoàn thành này
+  dailyRemainingBeforeCompletion Int? // dailyRewardCapAmount − dailyEarnedBeforeCompletion (null khi không có trần ngày)
+  actualRewardAmount             Int // thực nhận sau khi áp D-PARTIAL clamp = min(rewardAfterVideoCap, dailyRemaining)
+  limitReason                    String? // mã/ghi chú ổn định lý do chạm trần; null khi không bị giới hạn (member-visible, D-09)
+
+  createdAt DateTime @default(now())
+
+  @@map("training_wallet_txn_breakdowns")
+}
+
+// ==================== OVER-CAP ACCRUAL STATE (v1.5 Phase 69) ====================
+// D-18: per-user running accrual state for over-cap viewing. 1:1 with the user
+// (like TrainingWallet). Lap count is the CURRENT (un-disbursed) pot's lap count
+// — it is COPIED into TrainingOverflowDisbursement before the nightly reset so
+// §9 lap history survives the D-14 reset (§9↔§12.1 coupling guard). Platform-global
+// (D-5: NO businessId). All money Int VND (§12); multiplier in basis-points.
+model TrainingOverflowAccrual {
+  id                  String    @id @default(uuid())
+  userId              String    @unique // 1:1 backbone (auto-created on first over-cap accrual)
+  pendingMoneyVnd     Int       @default(0) // hũ tiền chờ — reset to 0 nightly by disbursement cron (D-14)
+  pendingMultiplierBp Int       @default(0) // hệ số chờ (bp; cap 100000 = x10, D-04); persists, user-gated (D-05)
+  lapCount            Int       @default(0) // số lượt vượt trần tích lũy vào pot hiện tại (§9 audit; reset with pot)
+  lastAccrualVnDay    DateTime? // VN-midnight stamp of the most recent accrual (D-09 maturity gate)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("training_overflow_accruals")
+}
+
+// ==================== OVER-CAP DISBURSEMENT LEDGER (v1.5 Phase 69) ====================
+// D-16/D-17: one row per user per VN-day the money pot is disbursed. The
+// @@unique([userId, vnDay]) is the cron's exactly-once idempotency key (re-run /
+// retry / overlap → conflict → no-op). Retains lapCount + potBeforeVnd for §9
+// reconciliation. §22 — write-once, never mutated. Platform-global (D-5).
+model TrainingOverflowDisbursement {
+  id           String   @id @default(uuid())
+  userId       String
+  vnDay        DateTime // startOfVietnamDay(now) of the disbursement night (idempotency axis)
+  potBeforeVnd Int // hũ tiền chờ trước khi giải ngân
+  lapCount     Int // số lượt vượt trần đã tích lũy (§9 — retained here past the D-14 reset)
+  disbursedVnd Int // số tiền VND giải ngân thực (== potBeforeVnd; column kept for audit symmetry)
+  disbursedAt  DateTime @default(now()) // VN timestamp of the disbursement
+
+  @@unique([userId, vnDay]) // D-17 exactly-once
+  @@index([userId, disbursedAt])
+  @@map("training_overflow_disbursements")
+}
+
+// ==================== OVER-CAP APPLY LEDGER (v1.5 Phase 69) ====================
+// D-16: one row per "dùng ngay" apply. Mirrors P66 D-08 audit-breakdown intent —
+// dedicated table keeps TrainingWalletTxn lean + leaves the §22 history identity
+// untouched. trainingWalletTxnId links to the bump-day earn txn (nullable: a fully
+// clamped bump may still credit 0 extra but reset the multiplier on confirm). §22
+// write-once. Platform-global (D-5).
+model TrainingOverflowApply {
+  id                  String   @id @default(uuid())
+  userId              String
+  videoId             String? // bump-day video (bare scalar, deletion-safe audit shape)
+  trainingWalletTxnId String?  @unique // link to the bump-day earn txn
+  baseRewardVnd       Int // R = rewardAfterVideoCap of the bump-day video (pre-bump)
+  multiplierBpApplied Int // Σbp consumed (the pending multiplier at apply time)
+  bumpVnd             Int // floor(R × Σbp / 10000) — pre-cap
+  bumpCreditedVnd     Int // actually landed after the 2-cap clamp (≤ bumpVnd)
+  lossAccepted        Boolean  @default(false) // D-07 confirm-despite-loss flag
+  appliedAt           DateTime @default(now())
+
+  @@index([userId, appliedAt])
+  @@map("training_overflow_applies")
+}
+
+// ==================== WITHDRAWAL ====================
+// Requestable when balance >= 35,000,000 VND (enforced in service, not schema).
+// Reuses UserPaymentMethod (bank/e-wallet picker). processedBy is a bare scalar
+// (admin user id — no back-relation, matching the audit-log minimal shape).
+
+model TrainingWithdrawalRequest {
+  id              String                   @id @default(uuid())
+  userId          String
+  walletId        String
+  wallet          TrainingWallet           @relation("WalletWithdrawals", fields: [walletId], references: [id], onDelete: Cascade)
+  amountVnd       Int // >= 35_000_000 enforced in service
+  status          TrainingWithdrawalStatus @default(pending)
+  paymentMethodId String?
+  paymentMethod   UserPaymentMethod?       @relation("TrainingWithdrawalPaymentMethod", fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  processedBy     String? // admin user id — bare scalar, no back-relation
+  processedAt     DateTime?
+  rejectionReason String?
+  imageString     String? // proof image URL
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("training_withdrawal_requests")
+}
+
+// ==================== COMMENTS ====================
+// Per-video comments, always on. Replies via self-relation (NoAction avoids
+// multi-cascade-path error on self-FK). Admin-delete-any sets deletedAt (soft-delete).
+// Image attachment via UploadThing (imageUrl + imageFileKey for deletion).
+
+model TrainingVideoComment {
+  id           String                         @id @default(uuid())
+  videoId      String
+  video        TrainingVideo                  @relation("TrainingVideoComments", fields: [videoId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User                           @relation("UserTrainingComments", fields: [userId], references: [id], onDelete: Cascade)
+  parentId     String?
+  parent       TrainingVideoComment?          @relation("TrainingCommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies      TrainingVideoComment[]         @relation("TrainingCommentReplies")
+  content      String                         @db.Text
+  imageUrl     String?
+  imageFileKey String? // UploadThing key for deletion
+  likeCount    Int                            @default(0)
+  reactions    TrainingVideoCommentReaction[] @relation("CommentReactions")
+  deletedAt    DateTime? // soft-delete — admin-delete-any sets this
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([videoId, createdAt])
+  @@index([parentId])
+  @@map("training_video_comments")
+}
+
+// ==================== COMMENT REACTIONS ====================
+// Reuses the existing social.prisma ReactionType enum (6 reactions: LIKE/LOVE/HAHA/WOW/SAD/ANGRY).
+// One reaction per user per comment enforced by @@unique.
+
+model TrainingVideoCommentReaction {
+  id        String               @id @default(uuid())
+  commentId String
+  comment   TrainingVideoComment @relation("CommentReactions", fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User                 @relation("UserTrainingCommentReactions", fields: [userId], references: [id], onDelete: Cascade)
+  type      ReactionType // REUSE the social enum — 6 reactions (LIKE/LOVE/HAHA/WOW/SAD/ANGRY)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, commentId]) // one reaction per user per comment
+  @@index([commentId])
+  @@map("training_video_comment_reactions")
+}
+
+// ==================== BULK VIDEO BATCH (v1.5 Phase 59) ====================
+// Net-new batch domain for bulk training-video creation (enqueue pipeline).
+// D-5: NO businessId (platform-global, like the rest of the training domain).
+// D-02: NO counter columns — pending/processing/success/failed/published counts
+// are DERIVED on read via groupBy over items (no drift). D-04: per-item config
+// is FLATTENED onto each item (every item is self-contained; "áp dụng chung" is a
+// P62 form convenience). VND amounts / points are Int (§12). uuid ids + @@map
+// snake_case. The worker/processor is Phase 60 — P59 only enqueues.
+
+enum TrainingVideoBatchStatus {
+  draft
+  queued
+  processing
+  partial_success
+  completed
+  failed
+  cancelled
+}
+
+enum TrainingVideoBatchItemStatus {
+  draft
+  validated
+  queued
+  uploading
+  creating_mux_asset
+  waiting_mux_processing
+  mux_ready
+  saving_metadata
+  ready
+  published
+  failed
+  retrying
+  cancelled
+}
+
+// D-07: processing outcome for a persisted Mux webhook event. Prisma enum (over a
+// string) for type-safety + the P64 admin filter UI.
+enum MuxWebhookProcessingStatus {
+  received
+  processed
+  ignored
+  failed
+}
+
+// D-12: client-supplied batchIdempotencyKey (uuid per "Tạo batch" action) — re-submit
+// with the same key returns the existing batch. createdByAdminId is a real User FK
+// relation (D-18 — future "my batches" filter + audit). NO counter columns (D-02).
+model TrainingVideoBatch {
+  id                  String                   @id @default(uuid())
+  batchIdempotencyKey String                   @unique // D-12 client-supplied; re-submit returns existing batch
+  status              TrainingVideoBatchStatus @default(draft)
+  totalItems          Int
+  createdByAdminId    String
+  createdByAdmin      User                     @relation("UserTrainingVideoBatches", fields: [createdByAdminId], references: [id], onDelete: Cascade)
+  errorSummary        String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  completedAt         DateTime?
+
+  items TrainingVideoBatchItem[]
+
+  @@index([createdByAdminId, createdAt])
+  @@map("training_video_batches")
+}
+
+// D-04: config FLATTENED from the batch — every item self-contained. D-03: videoId is
+// a nullable FK to TrainingVideo (onDelete: SetNull — batch history survives video
+// deletion); @@unique([batchId, videoId]) binds once set (Postgres allows multiple
+// NULLs pre-creation). D-12: server-derived idempotencyKey seeds the deterministic
+// BullMQ jobId. D-05: source + Mux fields. D-14: desiredStatus publish target.
+model TrainingVideoBatchItem {
+  id      String                       @id @default(uuid())
+  batchId String
+  batch   TrainingVideoBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  videoId String?
+  video   TrainingVideo?               @relation("TrainingVideoBatchItems", fields: [videoId], references: [id], onDelete: SetNull)
+  status  TrainingVideoBatchItemStatus @default(draft)
+
+  idempotencyKey String // server-derived; seeds the deterministic BullMQ jobId (D-12)
+
+  // Per-item config FLATTENED from the batch (D-04, all self-contained)
+  title                     String
+  slug                      String?
+  description               String?               @db.Text
+  category                  TrainingVideoCategory
+  pointsReward              Int
+  minLevelForMultiplier     Int                   @default(1)
+  rewardCapEnabled          Boolean               @default(false) // P66 D-11 — snapshot trần thưởng/video; bulk worker copy sang TrainingVideo đã materialize; mặc định TẮT (tương thích ngược)
+  rewardCapAmount           Int? // P66 D-11 — snapshot mức trần; null khi tắt; worker copy 1:1 sang TrainingVideo.rewardCapAmount
+  overflowAccrualMultiplier Int? // P70 — snapshot hệ số tích lũy vượt trần (Int basis-points, đã chuyển từ decimal); null = không tích lũy; worker copy 1:1 sang TrainingVideo.overflowAccrualMultiplier
+  overrideCooldown          Boolean               @default(false)
+  cooldownMinutes           Int                   @default(1440)
+  requiredCoveragePercent   Int                   @default(95)
+  desiredStatus             TrainingVideoStatus   @default(draft) // D-14 publish target
+
+  // Source + Mux fields (D-05)
+  uploadthingUrl     String
+  uploadthingFileKey String?
+  fileSizeBytes      Int? // for the ≤5GB batch-total check
+  muxAssetId         String?
+  muxUploadId        String?
+  muxPlaybackId      String?
+  durationSeconds    Int?
+  thumbnailUrl       String?
+
+  // Processing fields
+  errorCode       String?
+  errorMessage    String?
+  retryCount      Int       @default(0)
+  lastProcessedAt DateTime?
+  completedAt     DateTime?
+  rawMetadata     Json? // debug
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([batchId, videoId]) // D-03 — Postgres allows multiple NULLs pre-creation; binds once set
+  @@index([batchId, status]) // the groupBy-derived counts path (D-02)
+  @@index([videoId])
+  @@map("training_video_batch_items")
+}
+
+// D-07: dedicated raw Mux webhook log. eventId @unique → global replay dedup.
+// payload = raw EVENT.DATA. NO businessId. Scope = the /webhooks/mux/training-videos
+// route only. Shaped to back the P64 admin Mux-events monitor UI.
+model MuxWebhookEvent {
+  id               String                     @id @default(uuid())
+  eventId          String                     @unique // Mux event id → global replay dedup
+  eventType        String
+  assetId          String?
+  passthrough      String?
+  environment      String?
+  payload          Json // raw EVENT.DATA
+  receivedAt       DateTime                   @default(now())
+  processedAt      DateTime?
+  processingStatus MuxWebhookProcessingStatus @default(received)
+
+  // P64 D-02: delivery/outcome capture (receiver-side reconstruction of the Mux
+  // dashboard "delivery attempts / status code / response body" row). Existing rows
+  // take defaults (count=1, nullables NULL) — no backfill.
+  deliveryCount      Int       @default(1) // bumped on dedup-hit (re-delivery of same eventId)
+  lastReceivedAt     DateTime? // most recent (re)delivery — contrast first receivedAt
+  processingError    String? // failure reason when processingStatus = failed
+  httpStatusReturned Int? // HTTP status returned to Mux (≈ always 200, D-04)
+  responseBody       String? // body returned to Mux (≈ fixed, D-04)
+
+  @@index([assetId])
+  @@index([passthrough])
+  @@index([eventType])
+  @@index([processingStatus])
+  @@index([receivedAt])
+  @@map("mux_webhook_events")
+}
+
+// ==================== LEADERBOARD DAILY SNAPSHOT (v1.5 Phase 65) ====================
+// D-02: a cron writes ONE row per user per VN-day per period (end-of-Vietnam-day,
+// reuse startOfVietnamDay). Stores period aggregates + computed ranks so biến-động
+// hạng vs the immediately-prior period (D-10) + rank history are derivable. D-5: NO
+// businessId (platform-global, like the rest of the training domain). D-3/D-6
+// isolation: userId is a bare scalar (audit-log shape, like TrainingWalletTxn.userId)
+// — NO user User @relation, NO FK to gamification / capabilityScore. VND = Int (§12).
+// The @@unique([userId, snapshotDate, periodKey]) is the cron's idempotent upsert key.
+model VideoTrainingUserDailyStat {
+  id                   String   @id @default(uuid())
+  userId               String // bare scalar — no FK back-relation (audit-log / snapshot shape)
+  snapshotDate         DateTime // the VN-day boundary (startOfVietnamDay output) this row aggregates up to
+  periodKey            String // the period this row is scoped to (e.g. "day"); reserved so future period bases can coexist
+  totalRewardVnd       Int // SUM of type='earn' TrainingWalletTxn.amountVnd in the period (VND = Int, §12)
+  validCompletionCount Int
+  currentStreakDays    Int
+  validWatchSeconds    Int
+  rankByReward         Int // computed rank for the reward mode (D-04 default) at snapshot time → biến-động source
+  rankByCompletion     Int
+  rankByStreak         Int
+  rankByWatchSeconds   Int
+
+  // Scope dimension (D-10, Phase 78) — the per-scope rank columns above are reused per scope via the extended key.
+  // ⚠ referral_tree is NEVER snapshotted (cron writes 'global' + 'business_team' only — Pitfall 1, explosion);
+  //   referral biến-động hạng is computed on-demand by re-aggregating the prior window. Do NOT extend the cron to write referral rows.
+  scopeType String @default("global") // 'global' | 'business_team' (referral_tree NOT snapshotted — Pitfall 1)
+  scopeId   String @default("") // '' sentinel for global; teamId for business_team (non-null — Postgres NULLs are distinct, Pitfall 2)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, snapshotDate, periodKey, scopeType, scopeId]) // one row per user per VN-day per period per scope (idempotent upsert key)
+  @@index([snapshotDate, scopeType, scopeId, rankByReward]) // scoped biến-động lookup by prior-period rank
+  @@index([snapshotDate, rankByReward]) // biến-động lookup by prior-period rank
+  @@index([userId, snapshotDate]) // per-user history read for the drawer charts (D-13)
+  @@map("video_training_user_daily_stats")
+}
+
+// ==================== DANH SÁCH CẦN CHĂM SÓC (2026-09-18) ====================
+// Người xem video rèn luyện có SỐ DƯ ví video >= 10.000.000đ bị gắn cờ "cần chăm
+// sóc": mọi lần hoàn thành video sau đó vẫn được tính (mở thời gian chờ, đếm
+// lượt) nhưng KHÔNG cộng thêm tiền (0đ). Lần hoàn thành làm số dư VƯỢT mốc vẫn
+// được cộng bình thường — cờ gắn ngay sau lần đó. Chỉ admin gỡ được cờ (trang
+// "Danh sách cần chăm sóc"); đã gỡ thì hệ thống KHÔNG tự gắn lại, admin có thể
+// khoá lại bằng tay. Một dòng / người (userId @unique). Platform-global (D-5).
+enum TrainingCareStatus {
+  needs_care
+  unlocked
+}
+
+model TrainingCareFlag {
+  id     String             @id @default(uuid())
+  userId String             @unique
+  user   User               @relation("UserTrainingCareFlag", fields: [userId], references: [id], onDelete: Cascade)
+  status TrainingCareStatus @default(needs_care)
+
+  flaggedAt        DateTime @default(now()) // lần gắn cờ gần nhất
+  balanceAtFlagVnd Int // số dư ví video lúc gắn cờ (§12 Int VND)
+  flagSource       String // 'threshold_crossed' | 'threshold_existing' | 'backfill' | 'admin_relock'
+
+  unlockedAt DateTime? // lần gỡ cờ gần nhất
+  unlockedBy String? // admin user id — bare scalar, không back-relation
+  relockedBy String? // admin user id khoá lại gần nhất
+  note       String? // ghi chú của admin khi gỡ/khoá lại
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, flaggedAt])
+  @@map("training_care_flags")
+}

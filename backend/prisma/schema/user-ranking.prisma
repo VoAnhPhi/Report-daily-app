@@ -1,0 +1,49 @@
+// User Ranking snapshots per user (multiple rows = history)
+// Each row is a snapshot for a computed window [periodStart, periodEnd]
+
+model UserRanking {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Snapshot window for this record
+  periodStart DateTime
+  periodEnd   DateTime
+
+  // Engagement metrics at snapshot time (lifetime 5-tab set)
+  totalPoints     Int    @default(0)
+  recognizedPosts Int    @default(0)
+  revenuePreTax   BigInt @default(0)
+  directReferrals Int    @default(0)
+  likeCount       Int    @default(0)
+
+  // Pre-calculated ranking positions (1-based)
+  totalPointsRank     Int?
+  recognizedPostsRank Int?
+  revenuePreTaxRank   Int?
+  directReferralsRank Int?
+  likeCountRank       Int?
+
+  // Metadata
+  lastCalculatedAt DateTime @default(now()) // batch timestamp
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Allow multiple batches per window; pick latest by lastCalculatedAt when querying
+  @@index([userId])
+  @@index([periodStart, periodEnd])
+  @@index([userId, periodStart, periodEnd, lastCalculatedAt])
+  @@index([totalPoints(sort: Desc)])
+  @@index([recognizedPosts(sort: Desc)])
+  @@index([revenuePreTax(sort: Desc)])
+  @@index([directReferrals(sort: Desc)])
+  @@index([likeCount(sort: Desc)])
+  @@index([totalPointsRank])
+  @@index([recognizedPostsRank])
+  @@index([revenuePreTaxRank])
+  @@index([directReferralsRank])
+  @@index([likeCountRank])
+  @@index([lastCalculatedAt])
+  @@map("user_rankings")
+}

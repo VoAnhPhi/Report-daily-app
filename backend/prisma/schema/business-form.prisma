@@ -1,0 +1,523 @@
+// ============================================================================
+// COMMERCE DOMAIN - Business Registration Form
+// Ownership: acta-main-server
+// ============================================================================
+
+enum BusinessFormStatus {
+  pending
+  in_review
+  needs_more_info
+  approved
+  rejected
+}
+
+// Nội dung hợp tác — drives which sections of the form are shown to the user.
+// Existing rows default to `sales_partnership` to preserve current behaviour
+// (the original form was sales-partnership only).
+enum CooperationCategory {
+  consultation // Tư vấn
+  sales_partnership // Liên kết bán hàng
+  distribution // Phân phối / Đại lý
+  oem_manufacturing // Sản xuất / OEM/ODM
+  brand_collaboration // Hợp tác thương hiệu
+  marketing_advertising // Marketing & Quảng cáo
+  solar_panel_installation // Lắp đặt điện mặt trời
+  personal_work // Công việc cá nhân
+  other // Khác
+}
+
+// Sub-status for admin progress timeline. Layered on top of the main
+// `BusinessFormStatus`; admin can attach an arbitrary number of these to a
+// single form to record real-world activity (contacted partner, contacted
+// supplier, etc). Each note has independent visibility / supplier
+// anonymization toggles.
+enum BusinessFormProgressStatus {
+  awaiting_partner_response // Chờ phản hồi đối tác
+  partner_contacted // Đã liên hệ đối tác
+  supplier_contacted // Đã liên hệ nhà cung cấp / bên thứ 3
+  general_update // Ghi chú nội bộ chung
+}
+
+// Provenance of a `BusinessFormAttachment`. Admin must NEVER mark
+// admin-uploaded files as user-uploaded — the detail page surfaces this
+// badge so reviewers can tell at a glance who supplied each document.
+enum BusinessFormAttachmentSource {
+  user // uploaded by the submitter from acta-social
+  admin_supplement // uploaded by an admin on behalf of the submitter
+}
+
+// Structured risk / triage tags admin can pin to a form. Each tag is
+// individually toggleable and has its own audit entry. Visible near the
+// header so reviewers see triage signals at a glance.
+enum BusinessFormRiskFlagCode {
+  mst_suspicious // MST nghi vấn
+  docs_mismatch // Tài liệu không khớp
+  contact_unresponsive // Liên hệ không phản hồi
+  possible_duplicate // Trùng hồ sơ
+  needs_manager_review // Cần quản lý xem xét
+  high_potential // Có tiềm năng hợp tác cao
+}
+
+// Per-attachment review state. Default `not_checked` so existing rows
+// don't become silently "valid" on migration. The terminal states
+// (`valid`, `invalid`) are the ones gate logic should treat as decisions;
+// the others are intermediate states that ask the user to act.
+enum BusinessFormAttachmentVerificationStatus {
+  not_checked // Chưa kiểm tra
+  valid // Hợp lệ
+  invalid // Không hợp lệ
+  needs_replacement // Cần thay thế
+  unreadable // Khó đọc / file lỗi
+  wrong_type // Không đúng loại tài liệu
+}
+
+// Operational priority. `normal` is the default for organic submissions;
+// admins escalate `high`/`urgent` for time-sensitive cases. Pairs with
+// `slaDueAt` on BusinessForm.
+enum BusinessFormPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+// Internal admin task lifecycle. `cancelled` distinct from `done` so the
+// timeline can show "task abandoned" vs "task completed" separately.
+enum BusinessFormTaskStatus {
+  pending
+  in_progress
+  done
+  cancelled
+}
+
+enum BusinessFormTaskActivityType {
+  comment // Bình luận
+  status_changed // Log thay đổi trạng thái công việc
+  member_changed // Log thay đổi thành viên (giao/rời)
+  item_purged // Log xoá hẳn một việc con khỏi checklist
+}
+
+model BusinessForm {
+  id     String @id @default(cuid())
+  userId String
+
+  // Company info
+  companyName  String
+  taxCode      String
+  // Marks the MST as an individual's (cá nhân) tax code. When true, the
+  // acta-social form skips the VietQR lookup + duplicate-MST check and
+  // relabels "Tên công ty" → "Họ và tên". Backend only persists/returns it.
+  isIndividual Boolean @default(false)
+  address      String
+  contactName  String
+  contactPhone String
+
+  // Free-form descriptions — semantics depend on category
+  // - description: general "what they want" text (Tư vấn / Khác / optional elsewhere)
+  // - productInfo: business / product detail (Liên kết bán hàng / Phân phối / etc.)
+  description String?
+  productInfo String?
+
+  // Structured legal docs (used by sales_partnership / distribution / oem / brand).
+  // Each slot holds an array of { url, note } objects (multiple files per slot).
+  gpkdFileUrl       Json @default("[]") // Giấy đăng ký kinh doanh
+  congBoSpFileUrl   Json @default("[]") // Bản công bố sản phẩm
+  kiemNghiemFileUrl Json @default("[]") // Phiếu kết quả kiểm nghiệm
+  nhanSpFileUrl     Json @default("[]") // Nhãn sản phẩm
+  maVachFileUrl     Json @default("[]") // Mã số mã vạch
+  tccsFileUrl       Json @default("[]") // Tiêu chuẩn cơ sở
+  coFileUrl         Json @default("[]") // Chứng nhận nguồn gốc (C/O)
+  dangKyNhFileUrl   Json @default("[]") // Đăng ký nhãn hiệu
+  gmpFileUrl        Json @default("[]") // Chứng nhận GMP
+  otherDocFileUrl   Json @default("[]") // Tài liệu khác
+
+  // Status
+  status    BusinessFormStatus @default(pending)
+  adminNote String?
+
+  // Review metadata
+  reviewedAt   DateTime?
+  reviewedById String?
+
+  // Admin-creator metadata — set when an admin creates the form on behalf of
+  // a user (manual flow). `userId` is still the submitter; `createdByAdminId`
+  // records the admin who actually keyed it in. Null for forms submitted
+  // organically from acta-social.
+  createdByAdminId String?
+
+  // Internal assignment — which admin currently owns processing this form.
+  // Independent from `reviewedById` (set when a transition is acted on) so
+  // a manager can assign the case to an analyst without that analyst also
+  // being recorded as the approver/rejecter.
+  assignedToAdminId String?
+  assignedAt        DateTime?
+  assignedById      String? // admin who made the assignment
+  assignmentNote    String? // brief routing note, internal-only
+
+  // Operational triage. `priority` defaults to `normal`; admins set
+  // `slaDueAt` to mark a hard deadline. `priorityReason` records why a
+  // case was escalated (audit-friendly).
+  priority       BusinessFormPriority @default(normal)
+  slaDueAt       DateTime?
+  priorityReason String?
+
+  // Internal evaluation — used by sales/partnership pipeline. Optional
+  // (most organic submissions never have these set). potentialScore is
+  // 1–5; backend enforces the range.
+  potentialScore   Int?
+  estimatedRevenue Decimal? @db.Decimal(15, 2)
+  cooperationFit   String?  @db.Text // narrative fit description
+  potentialNote    String?  @db.Text
+
+  // Soft delete
+  deletedAt DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user           User                       @relation("BusinessFormSubmitter", fields: [userId], references: [id])
+  reviewedBy     User?                      @relation("BusinessFormReviewer", fields: [reviewedById], references: [id])
+  createdByAdmin User?                      @relation("BusinessFormAdminCreator", fields: [createdByAdminId], references: [id])
+  assignedTo     User?                      @relation("BusinessFormAssignee", fields: [assignedToAdminId], references: [id])
+  assignedBy     User?                      @relation("BusinessFormAssigner", fields: [assignedById], references: [id])
+  products       BusinessFormProduct[]
+  attachments    BusinessFormAttachment[]
+  fieldFlags     BusinessFormFieldFlag[]
+  progressNotes  BusinessFormProgressNote[]
+  riskFlags      BusinessFormRiskFlag[]
+  tasks          BusinessFormTask[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([taxCode])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([assignedToAdminId])
+  @@index([priority])
+  @@index([slaDueAt])
+  @@map("business_forms")
+}
+
+// Structured triage tag set on a form. One row per (form, code) pair —
+// admin toggles individual codes. Each toggle is independently audited
+// via ActivityLog.
+model BusinessFormRiskFlag {
+  id             String                   @id @default(cuid())
+  businessFormId String
+  code           BusinessFormRiskFlagCode
+  note           String? // optional admin justification
+  createdById    String
+  createdAt      DateTime                 @default(now())
+
+  businessForm BusinessForm @relation(fields: [businessFormId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("BusinessFormRiskFlagAuthor", fields: [createdById], references: [id])
+
+  @@unique([businessFormId, code])
+  @@index([businessFormId])
+  @@index([code])
+  @@map("business_form_risk_flags")
+}
+
+enum BusinessFormTaskType {
+  admin_internal // Công việc nội bộ Admin
+  partner_task // Công việc liên quan đến đối tác
+  personal // Công việc cá nhân
+}
+
+model BusinessFormTask {
+  id String @id @default(cuid())
+
+  // Mã công việc: CV + YYMMDD (giờ VN) + số thứ tự 3 chữ số trong ngày, vd CV260709001.
+  // Nullable vì cột thêm vào bảng đã có dữ liệu; migration backfill ngay sau đó.
+  code String? @unique
+
+  businessFormId String?
+  title          String
+  description    String?
+  status         BusinessFormTaskStatus @default(pending)
+
+  type BusinessFormTaskType @default(admin_internal)
+
+  category CooperationCategory @default(other)
+
+  // Mức độ ưu tiên: thấp / trung bình / cao / khẩn cấp. Mặc định `normal`.
+  priority BusinessFormPriority @default(normal)
+
+  createdByAdmin Boolean @default(false) // Task do admin tạo
+
+  // Người phụ trách chính. Null cho dữ liệu cũ chưa migrate.
+  mainAssigneeId String?
+
+  createdById   String
+  completedById String?
+  completedAt   DateTime?
+  startDate     DateTime?
+  dueDate       DateTime?
+
+  // Làm thay (babysitter): người được chăm mà việc này được tạo hộ.
+  // Null = tự tạo. FK để join lấy tên tươi + query "việc làm hộ cho X".
+  onBehalfOfId String?
+
+  // Cờ chống gửi trùng cho nhắc hạn (cron).
+  dueSoonNotifiedAt DateTime?
+  overdueNotifiedAt DateTime?
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Mốc hoạt động gần nhất (bình luận / đổi trạng thái / đổi thành viên / thả cảm xúc).
+  lastActivityAt DateTime @default(now())
+
+  businessForm BusinessForm?                @relation(fields: [businessFormId], references: [id], onDelete: Cascade)
+  mainAssignee User?                        @relation("BusinessFormTaskMainAssignee", fields: [mainAssigneeId], references: [id], onDelete: SetNull)
+  assignments  BusinessFormTaskAssignment[]
+  createdBy    User                         @relation("BusinessFormTaskCreator", fields: [createdById], references: [id])
+  completedBy  User?                        @relation("BusinessFormTaskCompleter", fields: [completedById], references: [id])
+  onBehalfOf   User?                        @relation("BusinessFormTaskOnBehalfOf", fields: [onBehalfOfId], references: [id], onDelete: SetNull)
+  activities   BusinessFormTaskActivity[]
+  pins         BusinessFormTaskPin[]
+
+  // Checklist + tệp đính kèm lưu inline dạng JSON (luôn đọc/ghi kèm task, không query riêng).
+  // items: { id, label, done }[] ; attachments: { id, name, url }[]
+  items       Json @default("[]")
+  attachments Json @default("[]")
+
+  @@index([status])
+  @@index([businessFormId])
+  @@index([businessFormId, type])
+  @@index([createdByAdmin])
+  @@index([mainAssigneeId])
+  @@index([category])
+  @@index([status, dueDate])
+  @@index([deletedAt])
+  @@index([lastActivityAt])
+  @@index([priority])
+  @@map("business_form_tasks")
+}
+
+// Ghim công việc theo TỪNG người (riêng tư). Chỉ người ghim thấy ghim của mình;
+// việc được ghim nổi lên đầu danh sách của riêng người đó — không ảnh hưởng người khác.
+model BusinessFormTaskPin {
+  taskId   String
+  userId   String
+  pinnedAt DateTime @default(now())
+
+  task BusinessFormTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User             @relation("BusinessFormTaskPinner", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+  @@index([userId])
+  @@index([taskId])
+  @@map("business_form_task_pins")
+}
+
+enum BusinessFormTaskAssignmentStatus {
+  pending // Chờ xác nhận
+  accepted // Đã xác nhận tham gia
+}
+
+// Người liên quan (người được chia sẻ)
+model BusinessFormTaskAssignment {
+  taskId       String
+  userId       String
+  status       BusinessFormTaskAssignmentStatus @default(pending)
+  assignedAt   DateTime                         @default(now())
+  assignedById String? // Người gán (Admin)
+
+  task       BusinessFormTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User             @relation("BusinessFormTaskAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User?            @relation("BusinessFormTaskAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@id([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+  @@map("business_form_task_assignments")
+}
+
+model BusinessFormTaskActivity {
+  id     String                       @id @default(cuid())
+  taskId String
+  type   BusinessFormTaskActivityType
+
+  message String? @db.Text
+
+  // Làm thay (babysitter): người được chăm mà hoạt động này thực hiện hộ.
+  // Null = tự thao tác. FK để join lấy tên tươi hiển thị cạnh tên tác giả.
+  onBehalfOfId String?
+
+  // Id người được nhắc (@mention) trong bình luận. Chỉ gồm người liên quan tới việc.
+  mentionedUserIds String[] @default([])
+
+  oldStatus BusinessFormTaskStatus?
+  newStatus BusinessFormTaskStatus?
+
+  parentId String?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  task       BusinessFormTask                   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy  User                               @relation("BusinessFormTaskActivityAuthor", fields: [createdById], references: [id])
+  onBehalfOf User?                              @relation("BusinessFormTaskActivityOnBehalfOf", fields: [onBehalfOfId], references: [id], onDelete: SetNull)
+  parent     BusinessFormTaskActivity?          @relation("TaskActivityReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    BusinessFormTaskActivity[]         @relation("TaskActivityReplies")
+  reactions  BusinessFormTaskActivityReaction[]
+
+  // Tệp đính kèm của bình luận lưu inline JSON: { id, name, url }[]
+  attachments Json @default("[]")
+
+  @@index([taskId])
+  @@index([createdAt])
+  @@map("business_form_task_activities")
+}
+
+model BusinessFormTaskActivityReaction {
+  activityId String
+  userId     String
+  emoji      String
+
+  activity BusinessFormTaskActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  user     User                     @relation("BusinessFormTaskActivityReactionAuthor", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([activityId, userId])
+  @@index([activityId])
+  @@map("business_form_task_activity_reactions")
+}
+
+// Field-level flags admin attaches when transitioning a form to
+// `needs_more_info`. Each flag pins a canonical field key (e.g. "companyName",
+// "products", "gpkdFileUrl") and a per-field reason. The user-facing UI uses
+// these to highlight problem fields with tooltips/drawers.
+//
+// Flags are auto-cleared when the user re-submits the form via `updateOwn`
+// (handled in BusinessFormsService) — so the next admin review starts fresh.
+model BusinessFormFieldFlag {
+  id             String @id @default(cuid())
+  businessFormId String
+
+  fieldKey String // e.g. "companyName", "taxCode", "address", "contactName",
+  //                "contactPhone", "category", "description", "productInfo",
+  //                "gpkdFileUrl"...,"products", "attachments"
+  reason   String // admin-supplied explanation for this specific field
+
+  createdAt DateTime @default(now())
+
+  businessForm BusinessForm @relation(fields: [businessFormId], references: [id], onDelete: Cascade)
+
+  @@unique([businessFormId, fieldKey])
+  @@index([businessFormId])
+  @@map("business_form_field_flags")
+}
+
+// Admin-authored progress entries timestamped on the form. Each entry can
+// independently be made visible to the submitter or kept admin-only.
+// Supplier identity (`supplierName`) is anonymized when
+// `hideSupplierIdentity = true` even if the entry is visible.
+model BusinessFormProgressNote {
+  id             String @id @default(cuid())
+  businessFormId String
+
+  status    BusinessFormProgressStatus
+  note      String?
+  // Optional images attached to the entry (e.g. screenshots of supplier
+  // confirmation). Stored as URL strings so the consuming surface owns
+  // its own image hosting (uploadthing / cloudinary / etc).
+  imageUrls String[]                   @default([])
+
+  // Visibility / privacy toggles
+  isVisibleToUser      Boolean @default(false)
+  hideSupplierIdentity Boolean @default(true)
+  supplierName         String?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  businessForm BusinessForm @relation(fields: [businessFormId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("BusinessFormProgressAuthor", fields: [createdById], references: [id])
+
+  @@index([businessFormId])
+  @@index([createdAt])
+  @@map("business_form_progress_notes")
+}
+
+// Free-form attachments uploaded by the user with an optional note explaining
+// the file. Used as the primary upload mechanism for `consultation` /
+// `other` categories and as a "Hồ sơ khác" supplement for the structured
+// categories.
+model BusinessFormAttachment {
+  id             String @id @default(cuid())
+  businessFormId String
+
+  label   String // human-friendly label (e.g. "Hồ sơ khác", "Brand kit", file name)
+  fileUrl String
+  note    String? // explanation of why this file is attached
+
+  // Provenance — who uploaded the file and as which role. Admin-supplemented
+  // files are surfaced with a distinct badge in the detail page.
+  source       BusinessFormAttachmentSource @default(user)
+  uploadedById String? // FK → User.id; nullable for legacy rows pre-migration
+  uploadedBy   User?                        @relation("BusinessFormAttachmentUploader", fields: [uploadedById], references: [id])
+
+  // Optional pin to a structured slot. When set, mirrors one of the typed
+  // legal-doc keys on `BusinessForm` (e.g. "gpkdFileUrl") so the admin UI
+  // can show this attachment as the "supplement" for that slot. Null means
+  // the attachment is free-form (no specific slot).
+  documentType String?
+
+  // Per-document verification — admin reviews each file individually and
+  // marks one of the canonical states. `verifiedById/At` are set on every
+  // transition so the timeline shows who reviewed last and when.
+  verificationStatus BusinessFormAttachmentVerificationStatus @default(not_checked)
+  verifiedById       String?
+  verifiedAt         DateTime?
+  verificationNote   String?
+
+  // Versioning — when admin replaces this attachment, a new row is created
+  // with `replacesAttachmentId` pointing back here, and the old row's
+  // `replacedAt` is stamped. The chain forms a linked-list per (form, slot)
+  // so the timeline can render version history without losing earlier
+  // metadata (uploader, verification verdict, file URL, ...).
+  replacesAttachmentId String?
+  replacedAt           DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businessForm BusinessForm             @relation(fields: [businessFormId], references: [id], onDelete: Cascade)
+  verifiedBy   User?                    @relation("BusinessFormAttachmentVerifier", fields: [verifiedById], references: [id])
+  // Self-relation: each row optionally points to the row it replaces.
+  // `onDelete: SetNull` so the chain doesn't cascade-delete when a single
+  // earlier version is removed (rare; admins generally append-only).
+  replaces     BusinessFormAttachment?  @relation("BusinessFormAttachmentVersion", fields: [replacesAttachmentId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  replacedBy   BusinessFormAttachment[] @relation("BusinessFormAttachmentVersion")
+
+  @@index([businessFormId])
+  @@index([uploadedById])
+  @@index([verifiedById])
+  @@index([businessFormId, documentType])
+  @@index([verificationStatus])
+  @@index([replacesAttachmentId])
+  @@map("business_form_attachments")
+}
+
+model BusinessFormProduct {
+  id             String  @id @default(cuid())
+  businessFormId String
+  name           String
+  price          Decimal @db.Decimal(15, 2)
+  imageUrl       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businessForm BusinessForm @relation(fields: [businessFormId], references: [id], onDelete: Cascade)
+
+  @@index([businessFormId])
+  @@map("business_form_products")
+}

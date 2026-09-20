@@ -1,0 +1,29 @@
+// ============================================================================
+// EXECUTIVE AUDIT VIEW - Multiverse Phase 1
+// Immutable audit log for sensitive-field views (e.g., hidden member location).
+// Append-only; service layer must reject UPDATE/DELETE on this model.
+// ============================================================================
+
+/// Immutable audit log; rows are append-only and MUST never be updated or deleted.
+model ExecutiveAuditView {
+  id String @id @default(uuid())
+
+  actorId String
+  actor   User   @relation("ExecutiveAuditViewActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  targetUserId String
+  targetUser   User   @relation("ExecutiveAuditViewTargetUser", fields: [targetUserId], references: [id], onDelete: Restrict)
+
+  // Comma-separated field path(s) viewed, e.g. "location.lat,location.lng"
+  viewedField   String
+  justification String?
+
+  viewedAt DateTime @default(now())
+
+  // No updatedAt: this model is immutable.
+  createdAt DateTime @default(now())
+
+  @@index([viewedAt(sort: Desc), actorId])
+  @@index([targetUserId, viewedAt(sort: Desc)])
+  @@map("executive_audit_views")
+}

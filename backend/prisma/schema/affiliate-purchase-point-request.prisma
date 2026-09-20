@@ -1,0 +1,152 @@
+// Đơn xin cấp "điểm mua hàng liên kết".
+//
+// Khi khách mua hàng NGOÀI (không qua sàn) tại một điểm cầu, chủ điểm cầu tạo đơn
+// đề nghị cấp điểm thưởng cho khách; quản trị viên duyệt / từ chối / yêu cầu bổ
+// sung. Đây CHỈ là bảng workflow duyệt — điểm thực tế sau khi duyệt được ghi vào
+// ledger dùng chung `ActivityPointTransaction` (sourceType = 'affiliate_purchase'),
+// KHÔNG lưu ở bảng này. Backlink `awardedTransactionId` giữ liên kết 1-1 với dòng
+// ledger đã cấp và đóng vai idempotency: một đơn chỉ cấp điểm đúng một lần.
+//
+// Bám mẫu review-gate của `WarehouseReview` (snapshot + submitter + reviewer +
+// audit log) và state machine của `WarehouseManagerAssignment`.
+
+enum AffiliatePurchasePointRequestStatus {
+  draft // chủ điểm cầu đang soạn, CHƯA nộp — chưa có mã phiếu, chưa tính phí
+  pending // đã nộp, chờ quản trị duyệt
+  needs_more_info // quản trị yêu cầu bổ sung; chủ điểm cầu sửa rồi gửi lại
+  approved // đã duyệt + đã cấp điểm (awardedTransactionId set)
+  rejected // bị từ chối, không cấp điểm
+}
+
+// Trạng thái khoản phí dịch vụ 5% mà điểm cầu trả cho công ty.
+// Tách RIÊNG khỏi `status` (trạng thái duyệt) một cách CỐ Ý: gộp hai trục vào một
+// enum sẽ tạo hai chỗ cùng nói "đã trả phí" — một nguồn sự thật trùng lặp. Cổng
+// "chưa trả phí thì không duyệt được" nằm trong mệnh đề `where` của lệnh duyệt.
+enum AffiliatePurchaseServiceFeeStatus {
+  unpaid // chưa tạo giao dịch, hoặc giao dịch đã hết hạn
+  processing // đã tạo giao dịch Pay2S, đang chờ tiền về
+  paid // đã nhận đủ tiền (IPN riêng xác nhận)
+}
+
+model AffiliatePurchasePointRequest {
+  id String @id @default(cuid())
+
+  // Multi-tenant: suy từ JWT lúc tạo, KHÔNG tin payload request.
+  businessId String?
+
+  // Điểm cầu nơi phát sinh giao dịch mua ngoài.
+  warehouseId String
+  warehouse   Warehouse @relation("AffiliatePointRequestWarehouse", fields: [warehouseId], references: [id])
+
+  // Chủ điểm cầu tạo đơn.
+  createdById String
+  createdBy   User   @relation("AffiliatePointRequestCreatedBy", fields: [createdById], references: [id])
+
+  // Khách hàng nhận điểm.
+  targetUserId String
+  targetUser   User   @relation("AffiliatePointRequestTarget", fields: [targetUserId], references: [id])
+
+  // Giá trị giao dịch nhập tay ("số lượng nhập"), tính bằng VND.
+  purchaseAmount    Decimal @db.Decimal(15, 2)
+  // Tỷ lệ điểm/1000 VND, snapshot lúc tạo (mặc định 3) — giữ ổn định nếu tỷ lệ
+  // toàn cục đổi về sau; đơn cũ vẫn phản ánh đúng tỷ lệ tại thời điểm tạo.
+  pointsRatePer1000 Int     @default(3)
+  // Điểm tính được = floor(purchaseAmount / 1000) * pointsRatePer1000, snapshot.
+  computedPoints    Int
+
+  status         AffiliatePurchasePointRequestStatus @default(pending)
+  note           String?                             @db.Text // ghi chú của chủ điểm cầu
+  evidenceImages String[] // URL ảnh bằng chứng (UploadThing), 1–5 ảnh; ép ở DTO vì bản nháp được phép 0 ảnh
+
+  // ——— Mã phiếu & thời điểm nộp ————————————————————————————————
+  // `code` sinh lúc NỘP (bản nháp chưa có mã), khuôn `PHI-YYMMDD-NNN`, `YYMMDD` theo
+  // GIỜ VIỆT NAM, `NNN` là MỘT bộ đếm chung toàn hệ thống mỗi ngày (tối đa 999).
+  // Phiếu thử cũ trên dev có thể còn đuôi 4 chữ số `PHI-YYMMDD-NNNN`.
+  // ⚠ Khuôn này CỐ Ý KHÔNG khớp `/([A-Z]{2,3}\d{10})/i` — regex mà
+  // `payments-external.controller.ts:265` dùng để dò mã ĐƠN HÀNG trong nội dung
+  // chuyển khoản của sao kê ngân hàng. Nếu mã phí trùng khuôn đó, tiền phí sẽ bị
+  // đọc thành thanh toán của một đơn hàng đang chờ (lệch ≤0.01 là khớp) rồi kéo
+  // theo cả một đợt chi hoa hồng affiliate. Regex KHÔNG có neo nên thêm chữ/số
+  // không cứu được — chỉ dấu ngăn không-chữ-số mới phá được khuôn. Có spec khoá.
+  code            String?   @unique
+  // Nội dung chuyển khoản của khoản phí: `PHI{YYMMDD}{NNN}{REF}`, KHÔNG gạch ngang
+  // (vd `PHI260911001VN11001`); REF = `referenceId` của NGƯỜI LẬP PHIẾU, viết hoa, bỏ
+  // mọi ký tự ngoài [A-Z0-9]. Sinh CÙNG LƯỢT với `code` ở lần nộp đầu rồi ĐÓNG BĂNG
+  // (gửi lại giữ nguyên). Gửi Pay2S làm cả `orderId` lẫn `orderInfo`; IPN phí tra phiếu
+  // theo đúng cột này. Không có gạch ngang che chắn, nên chuỗi này CŨNG phải không khớp
+  // regex mã đơn hàng ở trên và dài 10–32 ký tự — ép lúc nộp, fail-closed.
+  // `null` = bản nháp, hoặc phiếu nộp trước khuôn này ⇒ trả phí theo `code` như cũ.
+  transferContent String?   @unique
+  submittedAt     DateTime?
+
+  // ——— Phí dịch vụ: 5% giá trị giao dịch, điểm cầu trả cho công ty ————
+  // Tỷ lệ snapshot lúc nộp để phiếu cũ không đổi nghĩa khi tỷ lệ toàn cục đổi.
+  serviceFeeRatePercent Decimal                           @default(5) @db.Decimal(5, 2)
+  serviceFeeAmount      Decimal                           @default(0) @db.Decimal(15, 2)
+  serviceFeeStatus      AffiliatePurchaseServiceFeeStatus @default(unpaid)
+  serviceFeePaidAt      DateTime?
+  // Quan hệ 1-1 tới khoản thanh toán Pay2S của phí. Đi qua `Payment` sẵn có thay vì
+  // dựng bảng tiền riêng — `Payment` vốn đã cho phép cha tuỳ chọn (`orderPaymentId`,
+  // `invoicePaymentId` đều `String? @unique`).
+  serviceFeePayment     Payment?                          @relation("AffiliatePointRequestServiceFee")
+
+  // Reviewer — set khi duyệt / từ chối / yêu cầu bổ sung.
+  reviewedById        String?
+  reviewedBy          User?     @relation("AffiliatePointRequestReviewer", fields: [reviewedById], references: [id])
+  reviewedAt          DateTime?
+  reviewNote          String?   @db.Text
+  needsMoreInfoReason String?   @db.Text // bắt buộc khi status = needs_more_info
+
+  // ——— Hoàn phí THỦ CÔNG (phiếu đã thu phí nhưng bị từ chối) ——————
+  // Hệ thống KHÔNG chuyển tiền: kế toán chuyển khoản tay ngoài hệ thống rồi quản
+  // trị bấm «Đã hoàn tiền» kèm bằng chứng. Bốn cột dưới đây chỉ GHI NHẬN việc đã
+  // xảy ra ngoài hệ thống. `serviceFeeStatus` CỐ Ý giữ nguyên `paid`: tiền ĐÃ vào
+  // tài khoản công ty, và sao kê kế toán phải thấy cả hai chiều (thu rồi hoàn).
+  // `serviceFeeRefundedAt IS NULL` là điều kiện để phiếu còn nằm trong làn
+  // «Cần hoàn tiền»; set đúng một lần qua CAS, không có đường gỡ.
+  serviceFeeRefundedAt     DateTime?
+  serviceFeeRefundedById   String?
+  serviceFeeRefundedBy     User?     @relation("AffiliatePointRequestRefunder", fields: [serviceFeeRefundedById], references: [id])
+  serviceFeeRefundNote     String?   @db.Text
+  serviceFeeRefundEvidence String[]  @default([]) // URL ảnh bằng chứng chuyển khoản (UploadThing), 1–5 ảnh
+
+  // Backlink chống cấp trùng — set đúng một lần khi approved.
+  awardedTransactionId String?   @unique // ActivityPointTransaction.id
+  awardedPoints        Int? // snapshot điểm thực cấp
+  awardedAt            DateTime?
+
+  metadata  Json?
+  auditLogs AffiliatePurchasePointRequestAuditLog[]
+  createdAt DateTime                                @default(now())
+  updatedAt DateTime                                @updatedAt
+
+  @@index([targetUserId, status])
+  @@index([warehouseId, status])
+  @@index([warehouseId, status, createdAt]) // danh sách phiếu của một điểm cầu, phân trang cursor
+  @@index([createdById])
+  // Hàng đợi quản trị lọc theo cặp (trạng thái duyệt × trạng thái phí). Cũng là index
+  // đỡ cho ô "đã thu phí nhưng bị TỪ CHỐI" — kế toán phải hoàn tay ngoài hệ thống nên
+  // trạng thái đó bắt buộc phải tra ra được, không được chìm.
+  @@index([status, serviceFeeStatus, createdAt])
+  @@index([businessId, status, createdAt])
+  @@index([status])
+  @@map("affiliate_purchase_point_requests")
+}
+
+model AffiliatePurchasePointRequestAuditLog {
+  id        String                        @id @default(cuid())
+  requestId String
+  request   AffiliatePurchasePointRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  action   String // submitted | updated | approved | rejected | requested_more_info | cancelled
+  actorId  String
+  actor    User    @relation("AffiliatePointRequestAuditActor", fields: [actorId], references: [id])
+  note     String? @db.Text
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([requestId])
+  @@index([actorId])
+  @@map("affiliate_purchase_point_request_audit_logs")
+}

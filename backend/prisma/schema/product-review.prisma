@@ -1,0 +1,120 @@
+enum ProductReviewType {
+  create
+  update
+  delete
+}
+
+enum ProductReviewStatus {
+  pending
+  partial // at least one ProductReviewItem approved AND at least one rejected
+  approved
+  rejected
+}
+
+enum ProductReviewItemKind {
+  parent_create
+  parent_update
+  variant_create
+  variant_link
+  variant_update
+  variant_unlink
+  family_create
+  family_update
+}
+
+enum ProductReviewItemStatus {
+  pending
+  approved
+  rejected
+}
+
+model ProductReview {
+  id String @id @default(cuid())
+
+  type   ProductReviewType
+  status ProductReviewStatus @default(pending)
+
+  // Snapshot of the proposed product data (full JSON for create/update, null for delete)
+  proposedData Json? // Full product payload
+  previousData Json? // Snapshot of current product state before change (for update/delete)
+
+  // Product reference (null for create since product doesn't exist yet)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Submitter
+  submittedById String
+  submittedBy   User     @relation("ProductReviewSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime @default(now())
+
+  // Reviewer (filled on approve/reject)
+  reviewedById String?
+  reviewedBy   User?     @relation("ProductReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Audit log entries
+  auditLogs ProductReviewAuditLog[]
+
+  // Per-item review entries (partial review support)
+  items ProductReviewItem[]
+
+  @@index([status])
+  @@index([type])
+  @@index([productId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("product_reviews")
+}
+
+model ProductReviewItem {
+  id              String                  @id @default(cuid())
+  reviewId        String
+  review          ProductReview           @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  kind            ProductReviewItemKind
+  targetProductId String?
+  targetVariantId String? // for future per-variant updates pointing to ProductVariant or ProductVariantAttribute
+  payload         Json
+  status          ProductReviewItemStatus @default(pending)
+  reviewedAt      DateTime?
+  reviewerId      String?
+  reviewerNote    String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  auditLogs ProductReviewAuditLog[]
+
+  @@index([reviewId])
+  @@index([status])
+  @@index([kind])
+  @@map("product_review_items")
+}
+
+model ProductReviewAuditLog {
+  id String @id @default(cuid())
+
+  action   String // submitted, approved, rejected, cancelled
+  note     String? @db.Text
+  metadata Json? // Any extra context
+
+  performedById String
+  performedBy   User   @relation("ProductReviewAuditPerformer", fields: [performedById], references: [id])
+
+  reviewId String
+  review   ProductReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  productReviewItemId String?
+  productReviewItem   ProductReviewItem? @relation(fields: [productReviewItemId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@index([productReviewItemId])
+  @@map("product_review_audit_logs")
+}

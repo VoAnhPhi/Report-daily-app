@@ -1,0 +1,337 @@
+enum WarehouseType {
+  MAIN
+  TEMPORARY
+}
+
+// Trạng thái hoạt động thực tế của điểm cầu.
+//
+// ⚠ Enum này CHUYỂN TỪ tệp của thực thể "địa điểm kinh doanh" sang đây ngày
+// 07/09/2026, khi thực thể ấy bị xoá hẳn (xem migration
+// `20260907120000_gop_dia_diem_vao_kho`). Kiểu Postgres `"OpeningStatus"` KHÔNG drop — nó
+// chỉ đổi chỗ khai báo trong lược đồ Prisma. Drop rồi tạo lại là bắt mọi cột
+// dùng nó phải rời bảng và quay về, tức một migration phá huỷ để đổi lấy đúng
+// một dòng nằm ở tệp khác.
+enum OpeningStatus {
+  open // Đang mở cửa
+  closed // Đóng cửa (theo giờ)
+  temporarily_closed // Tạm đóng (quản trị cài)
+  permanently_closed // Đóng vĩnh viễn
+}
+
+model Warehouse {
+  id String @id @default(cuid())
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietWarehouseId Int? @unique // ID kho hàng từ KiotViet
+
+  // Thông tin kho hàng
+  name               String // Tên kho hàng
+  // Tên hiển thị công khai trên acta-solutions (bản đồ điểm cầu). TUỲ CHỌN —
+  // để trống thì mặt công khai lấy luôn `name`. Phải là trường riêng vì tên kho
+  // nội bộ mang ký hiệu vận hành ("Kho CTV Bảo Lộc 02", "Kho tạm - hàng hỏng"),
+  // không hợp để khách nhìn thấy; mà sửa thẳng `name` thì vỡ báo cáo, phiếu kho
+  // và thói quen vận hành của nhân viên.
+  publicDisplayName  String?
+  email              String? // Email
+  isActive           Boolean      @default(true) // Trạng thái hoạt động
+  source             OriginSource @default(acta) // Nguồn gốc
+  isPrioritySale     Boolean      @default(false) // Trạng thái ưu tiên bán hàng
+  isPriorityDelivery Boolean      @default(false) // Trạng thái ưu tiên giao hàng
+
+  // Cờ đánh dấu kho của cộng tác viên (CTV). false = điểm cầu / kho thường của công ty.
+  isCollaboratorWarehouse Boolean @default(false)
+
+  /// Ẩn điểm cầu này khỏi bản đồ công khai acta-solutions.
+  ///
+  /// ⚠ VÌ SAO PHẢI LÀ CỘT RIÊNG, KHÔNG MƯỢN `isActive`: `isActive` điều khiển
+  /// NGHIỆP VỤ KHO — kho có được chọn để bán, để xuất hàng, để tính điểm cầu gần
+  /// khách nhất hay không (`CHI_KHO_CHINH = { isActive: true, type: MAIN }` ở
+  /// `diem-cau.service.ts:83`). Mượn nó làm công tắc bản đồ là gộp hai ý nghĩa
+  /// vào MỘT cột: người trực bản đồ muốn giấu một điểm ghi sai địa chỉ sẽ vô
+  /// tình TẮT LUÔN kho khỏi luồng bán và giao hàng.
+  ///
+  /// ⚠ Cột này là công tắc bản đồ DUY NHẤT. Bản trước 07/09/2026 còn một cơ chế
+  /// thứ hai — trạng thái hiển thị nằm trên thực thể "địa điểm kinh doanh" — và
+  /// nó vô dụng đúng ở nhóm đông nhất: mặt công khai ấy chỉ tồn tại khi kho đã
+  /// "mở", mà điều kiện mở đòi kho có đúng một phạm vi doanh nghiệp, thứ 0/23 kho
+  /// nào đạt. Nay chỉ còn MỘT tay nắm, dùng được cho mọi kho.
+  ///
+  /// Mặc định `false` = hiện như cũ ⇒ migration KHÔNG đổi hành vi của bất kỳ
+  /// điểm nào đang chạy.
+  hiddenOnMap Boolean @default(false)
+
+  /// Cấp độ kho, 1–5. CHỈ quản trị viên sửa được — người phụ trách kho thì không.
+  ///
+  /// `Int` có mặc định chứ không phải enum và không nullable: mọi kho đều có
+  /// cấp, không có trạng thái "chưa biết cấp" để giao diện phải vẽ riêng.
+  /// Khoảng 1–5 chốt ở tầng validate (`@Min(1) @Max(5)`), KHÔNG ở kiểu dữ liệu —
+  /// nới trần sau này thì không phải chạy migration cho một con số.
+  level Int @default(1)
+
+  // Temp warehouse support — every MAIN warehouse owns at most one TEMPORARY
+  // sibling. Temp warehouses hold damaged / expired / sample-defect / unusable
+  // stock that must be excluded from the customer-facing storefront, fulfillment
+  // pickers and group aggregations. See storefront $extends in
+  // common/services/prisma.service.ts.
+  type              WarehouseType @default(MAIN)
+  parentWarehouseId String?
+  parent            Warehouse?    @relation("WarehouseTempParent", fields: [parentWarehouseId], references: [id], onDelete: Restrict)
+  tempWarehouses    Warehouse[]   @relation("WarehouseTempParent")
+
+  // Địa chỉ
+  addressId String?  @unique
+  address   Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+
+  // ╔════════════════════════════════════════════════════════════════════════╗
+  // ║  HỒ SƠ CÔNG KHAI CỦA ĐIỂM CẦU — NẰM THẲNG TRÊN KHO (07/09/2026)        ║
+  // ╚════════════════════════════════════════════════════════════════════════╝
+  //
+  // Tới 07/09/2026 mặt công khai của một kho sống ở một bản ghi RIÊNG thuộc thực
+  // thể "địa điểm kinh doanh", nối vào kho qua một cầu 1-1. Cầu đó ĐÃ GỠ, cùng cả
+  // họ bảng ấy — xem migration `20260907120000_gop_dia_diem_vao_kho`.
+  //
+  // VÌ SAO GỠ: cầu nối chỉ trả lời được câu hỏi "mặt công khai của kho này ở đâu"
+  // bằng cách đi qua một thực thể mang những khái niệm KHÔNG áp dụng cho điểm cầu
+  // — trước hết là mã doanh nghiệp chủ quản NOT NULL (điểm cầu là hạ tầng của
+  // chính ACTA; `warehouse_business_scopes` 0 dòng nên cũng không suy ra nổi), rồi
+  // tới ngành nghề, cấp xác minh, trạng thái duyệt hiển thị. Hệ quả đo được: 0/23
+  // kho từng mở nổi mặt công khai, nên MỌI tính năng dựng trên đó — lưu, ghim,
+  // check-in, đánh giá, ưu đãi — chết cứng ở nhánh "chưa có địa điểm".
+  // Một thực thể mà KHÔNG bản ghi nào đạt nổi điều kiện tạo ra thì không phải một
+  // lớp trừu tượng, nó là một cổng chặn.
+  //
+  // Các cột dưới đây là phần hồ sơ công khai còn NGHĨA với điểm cầu. Phần bỏ lại
+  // (slug riêng, ngành nghề, cấp xác minh, trạng thái duyệt hiển thị, bộ điểm xếp
+  // hạng, khoảng giá, mảng thẻ, toạ độ chép tay…) ghi lý do trong ADR §3.
+
+  /// Mô tả điểm cầu, hiện ở tab "Giới thiệu" trên acta-solutions.
+  description String? @db.Text
+
+  /// Lĩnh vực kinh doanh của điểm cầu — **NHIỀU giá trị, tối đa 5**.
+  ///
+  /// ⚠ KHÔI PHỤC 09/09/2026 (chủ dự án chốt), và KHÔNG phải chép lại cột cũ.
+  /// Bản cũ trên "địa điểm kinh doanh" là `industry String?` — MỘT ngành. Cột
+  /// này là mảng, vì một kho hàng bán nhiều thứ cùng lúc (cà phê kèm đồ ăn, tạp
+  /// hoá kèm nông sản) và ép chọn một là ép người ta khai sai rồi bộ lọc trả
+  /// thiếu.
+  ///
+  /// ⚠ Lý lẽ xoá hồi 07/09 ("không còn hàng dữ liệu nào để áp lên") đã sai ở
+  /// tiền đề: `main` production vẫn đang chạy bộ lọc danh mục ngành nghề, dùng
+  /// đúng 17 mã ở `src/common/enums/nganh-dia-diem.enum.ts`. Bảng mã không chết;
+  /// cột bị bỏ mới làm bộ lọc mất nguồn. Xem
+  /// `.planning/research/gop-dia-diem-vao-kho/04-SOAT-TRUONG-BI-BO.md`.
+  ///
+  /// ⚠ Trần 5 được cưỡng chế ở HAI tầng, cố ý trùng nhau: `@ArrayMaxSize` trong
+  /// DTO (trả 400 tiếng Việt cho người dùng) và ràng buộc `CHECK` trong CSDL
+  /// (chặn mọi đường ghi nội bộ không đi qua DTO). Bỏ tầng CSDL thì backfill và
+  /// nhập hàng loạt ghi bao nhiêu cũng lọt.
+  ///
+  /// ⚠ Mặc định `[]` chứ KHÔNG null: "chưa khai" và "khai rỗng" là một thứ ở
+  /// đây, và một cột mảng nullable buộc mọi nơi đọc phải xử lý ba trạng thái
+  /// thay vì hai.
+  industries String[] @default([])
+
+  /// Liên hệ công khai. `email` đã có sẵn ngay trên (dùng lại, không thêm cột thứ hai).
+  phone   String?
+  website String?
+
+  /// Trạng thái mở cửa do quản trị/người phụ trách cài. `isOpenNow` của hợp đồng
+  /// công khai = kho KHÔNG có dòng giờ ⇒ `openingStatus == open`; có giờ ⇒ tính
+  /// theo giờ trong tuần RỒI mới xét cột này (tạm đóng thì giờ nào cũng đóng).
+  openingStatus OpeningStatus @default(open)
+
+  /// Thống kê phi chuẩn hoá — cố ý chép xuống đây để danh sách bản đồ không phải
+  /// `COUNT(*)` trên `diem_cau_reviews`/`warehouse_check_ins`/`saved_places` cho
+  /// TỪNG ghim. Đường ghi tương ứng có trách nhiệm cập nhật trong cùng `$transaction`.
+  rating        Decimal @default(0) @db.Decimal(3, 2) // Điểm trung bình
+  totalRatings  Int     @default(0)
+  totalCheckIns Int     @default(0)
+  totalSaved    Int     @default(0)
+
+  /// Thuộc tính mở rộng (VD `{ wifi: true, doXe: true }`) và liên kết mạng xã hội
+  /// (`{ facebook, instagram, tiktok, zalo }`). Json vì danh mục còn thay đổi theo
+  /// vận hành — đóng cứng thành cột là một migration cho mỗi tiện ích mới.
+  attributes  Json?
+  socialLinks Json?
+
+  /// "Điểm cầu nổi bật": ghim vàng + quầng vàng + nhãn "★ Điểm cầu nổi bật" trên
+  /// bản đồ công khai.
+  ///
+  /// ⚠ VÌ SAO MỘT CỜ BOOLEAN, KHÔNG PHẢI MỘT THANG CẤP XÁC MINH NHƯ BẢN CŨ:
+  /// "nổi bật" từng là một GIÁ TRỊ nằm trên chính cái thang xác minh, nên bật nổi
+  /// bật là GHI ĐÈ cấp cũ — "đã nhận quyền" / "đã xác minh" / "cao cấp" biến mất
+  /// không dấu vết; bản cũ phải nuôi thêm một cột thứ hai chỉ để nhớ cấp trước đó
+  /// mà hoàn nguyên. Với điểm cầu thì cả cái thang ấy vô nghĩa — ACTA không "xác
+  /// minh danh tính" chính mình — nên cả hai cột bỏ, còn lại đúng một cờ hai
+  /// trạng thái không thể mất thông tin.
+  featuredOnMap Boolean @default(false)
+
+  /// Thương hiệu chủ quản của điểm cầu này — NULLABLE, và mặc định là `null`.
+  ///
+  /// ⚠ KHÔI PHỤC 08/09/2026 (chủ dự án chốt). Cột này từng tồn tại trên thực thể
+  /// "địa điểm kinh doanh" và bị bỏ trong đợt gộp 07/09 với lý lẽ ghi ở ADR §3:
+  /// *"điểm cầu là hạ tầng của ACTA, không có doanh nghiệp/thương hiệu chủ
+  /// quản"*. Lý lẽ ấy đúng khi bản đồ có 23 kho của chính ACTA. Nó hết đúng khi
+  /// bản đồ sắp mang ~2 204 điểm cầu của THÀNH VIÊN — mỗi người một nghề, và
+  /// một số thuộc chuỗi thương hiệu có thật.
+  ///
+  /// Hệ quả đo được của việc bỏ nó: `GET /public/brands/:slug/media` (thư viện
+  /// ảnh/video của thương hiệu) bị xoá HẲN khỏi acta-api, và acta-solutions xoá
+  /// theo cả `BrandMediaItemSchema` lẫn khối "Thư viện thương hiệu" trên trang
+  /// thương hiệu — một tính năng người dùng nhìn thấy được, mất vì thiếu đúng
+  /// một mối nối.
+  ///
+  /// ⚠ `onDelete: SetNull` chứ KHÔNG `Cascade`: xoá một thương hiệu KHÔNG được
+  /// phép xoá theo điểm cầu — điểm cầu là hạ tầng vận hành, còn thương hiệu chỉ
+  /// là một nhãn gắn lên nó.
+  brandId String?
+  brand   BusinessBrand? @relation("BusinessBrandWarehouses", fields: [brandId], references: [id], onDelete: SetNull)
+
+  productInventories        ProductInventory[]
+  productInventoryHistories ProductInventoryHistory[]
+  productShelves            ProductShelf[]
+  productBatchExpires       ProductBatchExpire[]
+  orders                    Order[]
+  invoices                  Invoice[]
+  purchaseOrders            PurchaseOrder[]
+  cashflows                 Cashflow[]
+  priceBooks                PriceBook[]
+  orderBusinesses           OrderBusiness[]
+  carts                     Cart[]
+
+  warehouseGroupId String?
+  warehouseGroup   WarehouseGroup? @relation(fields: [warehouseGroupId], references: [id])
+
+  // Warehouse-Business scoping
+  warehouseBusinessScopes WarehouseBusinessScope[]
+
+  // Đánh giá công khai của người dùng cho điểm cầu này (acta-solutions,
+  // trang /ban-do). Từ 07/09/2026 đây là bảng đánh giá DUY NHẤT của hệ thống —
+  // xem `diem-cau-review.prisma`.
+  diemCauReviews DiemCauReview[]
+
+  /// Bài viết đăng lên điểm cầu này.
+  ///
+  /// ⚠ Trước đây là một bảng `WarehousePost` RIÊNG. Bảng đó đã bị xoá: nó chạy
+  /// song song với `Post` của mạng xã hội — cùng nội dung, cùng ảnh/video, cùng
+  /// cảm xúc và bình luận — nên mọi tính năng social về sau (lưu bài, báo cáo vi
+  /// phạm, đăng lại, thăm dò) đều phải làm lần thứ hai cho nhánh kho. Nay bài
+  /// điểm cầu LÀ `Post` thật, chỉ khác ở chỗ có gắn kho.
+  posts Post[] @relation("WarehousePosts")
+
+  // Order warehouse assignments
+  orderWarehouseAssignments OrderWarehouseAssignment[]
+
+  // Inventory reservations
+  inventoryReservations InventoryReservation[]
+
+  // Sổ ghi nhận mục đích tồn kho CTV (combo-earmark.prisma). Chỉ có dòng khi
+  // isCollaboratorWarehouse = true.
+  comboEarmarks ProductComboEarmark[]
+
+  // Warehouse Manager Assignment Relations
+  managerAssignments WarehouseManagerAssignment[] @relation("ManagerAssignmentWarehouse")
+
+  // Đơn xin cấp điểm mua hàng liên kết phát sinh tại điểm cầu này.
+  affiliatePointRequests AffiliatePurchasePointRequest[] @relation("AffiliatePointRequestWarehouse")
+
+  // Multiverse - Mission System
+  missions Mission[] @relation("MissionWarehouse")
+
+  // Phase 43: Shipping origin config back-relation
+  shippingOriginConfig ShippingOriginConfig?
+
+  // ── VỆ TINH CỦA HỒ SƠ CÔNG KHAI ────────────────────────────────────────────
+  // Cả nhóm này trước 07/09/2026 neo vào thực thể "địa điểm kinh doanh" (đã xoá);
+  // nay neo thẳng kho.
+  hours            WarehouseHours[]
+  media            WarehouseMedia[]
+  tagMaps          WarehouseTagMap[]
+  checkIns         WarehouseCheckIn[]
+  violationReports WarehouseViolationReport[]
+  views            WarehouseView[]
+  savedBy          SavedPlace[]
+  qrTokens         QrToken[]
+
+  /// Ưu đãi có mã (`VoucherTemplate`) do quản trị viên phát hành cho điểm cầu này.
+  /// ⚠ KHÁC `posts` ngay trên: bài ưu đãi (`Post.postType = 'offer'`) là nội dung
+  /// tự đăng, hiện ngay, KHÔNG phát mã.
+  offers VoucherTemplate[]
+
+  /// Điểm chạm thẻ nhân viên (cửa, đầu đọc) — xem employee-card.prisma
+  accessPoints AccessPoint[] @relation("WarehouseAccessPoints")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([parentWarehouseId, type], name: "uniq_temp_per_parent")
+  @@index([id, name])
+  @@index([kiotVietWarehouseId])
+  @@index([warehouseGroupId])
+  @@index([type])
+  @@index([parentWarehouseId])
+  // Bộ lọc của danh sách điểm cầu công khai: chỉ kho đang hoạt động và KHÔNG
+  // phải kho tạm (kho tạm chứa hàng hỏng/hết hạn, tuyệt đối không lộ ra ngoài).
+  @@index([isActive, type])
+  @@index([brandId])
+  /// GIN — bộ lọc bản đồ hỏi "điểm này có MỘT TRONG các lĩnh vực đang chọn
+  /// không", tức `industries && ARRAY[...]`. B-tree không phục vụ được toán tử
+  /// giao mảng; thiếu index này thì mỗi lần lọc là một lần quét toàn bảng.
+  @@index([industries], type: Gin)
+  @@map("warehouses")
+}
+
+model WarehouseGroup {
+  id String @id @default(cuid())
+
+  name        String
+  code        String? @unique // Mã vùng/nhóm kho (VD: "MIEN_BAC", "MIEN_TRUNG")
+  description String?
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(0) // Thứ tự hiển thị
+
+  warehouses Warehouse[]
+
+  // Warehouse-Business scoping qua region
+  warehouseBusinessScopes WarehouseBusinessScope[]
+
+  // Orders placed against this pickup group / region
+  orders Order[]
+
+  // Warehouse Manager Assignment Relations
+  managerAssignments WarehouseManagerAssignment[] @relation("ManagerAssignmentGroup")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([id, name])
+  @@index([code])
+  @@index([sortOrder])
+  @@map("warehouse_groups")
+}
+
+// Liên kết warehouse với business (doanh nghiệp) để phân quyền
+model WarehouseBusinessScope {
+  id String @id @default(cuid())
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  // Thuộc region nào (optional, để truy vấn nhanh)
+  warehouseGroupId String?
+  warehouseGroup   WarehouseGroup? @relation(fields: [warehouseGroupId], references: [id], onDelete: SetNull)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([warehouseId, businessId])
+  @@index([warehouseId])
+  @@index([businessId])
+  @@index([warehouseGroupId])
+  @@map("warehouse_business_scopes")
+}

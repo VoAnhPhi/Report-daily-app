@@ -1,0 +1,40 @@
+// ============================================================================
+// TASK ASSIGN GROUP - Quick-assign supporter groups
+// Lightweight, per-owner saved list of users for fast task assignment.
+// Snapshot semantics: selecting a group copies its members into a task's
+// relatedUserIds; tasks do NOT reference a group.
+// ============================================================================
+
+model TaskAssignGroup {
+  id   String @id @default(uuid())
+  name String
+
+  // Owner — the user (social member or admin) who created the group.
+  ownerId String
+  owner   User   @relation("UserTaskAssignGroups", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  members TaskAssignGroupMember[]
+
+  // Cấu hình báo cáo hằng ngày (nếu nhóm bật) — xem daily-report.prisma
+  reportScopes DailyReportScope[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@map("task_assign_groups")
+}
+
+model TaskAssignGroupMember {
+  groupId String
+  group   TaskAssignGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("UserTaskAssignGroupMemberships", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([groupId, userId])
+  @@index([userId])
+  @@map("task_assign_group_members")
+}

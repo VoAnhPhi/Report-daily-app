@@ -1,0 +1,48 @@
+// Loại lưu điểm cầu: "saved" (bookmark) hoặc "liked" (yêu thích)
+enum SavedPlaceKind {
+  saved
+  liked
+
+  /**
+   * "Ghim ưu tiên" — người dùng ghim điểm cầu để nó luôn nổi lên đầu danh sách
+   * và luôn hiện trên bản đồ của RIÊNG họ.
+   * ⚠ KHÁC `saved`: `saved` là "để dành xem sau" (một danh sách có thể dài hàng
+   * trăm mục), `pinned` là "tôi cần thấy chỗ này ngay". Gộp hai thứ vào một
+   * `kind` thì ghim mất hết ý nghĩa ngay khi danh sách lưu dài ra.
+   * ⚠ KHÁC "điểm cầu nổi bật" (`Warehouse.featuredOnMap`): ghim là quyết định
+   * của TỪNG NGƯỜI DÙNG và chỉ họ thấy; nổi bật là quyết định của quản trị và
+   * MỌI người thấy. Hai chủ thể, hai phạm vi, nên hai chỗ lưu — chủ dự án chốt
+   * tách 06/09/2026.
+   */
+  pinned
+}
+
+// Điểm cầu được người dùng lưu lại (saved / liked / pinned)
+//
+// ⚠ Tên model và tên bảng GIỮ NGUYÊN qua lần gộp 07/09/2026 (chỉ cột khoá ngoại
+// đổi sang `warehouseId`): "nơi đã lưu" vẫn là tên đúng cho thứ
+// người dùng nhìn thấy, và đổi tên bảng chỉ để đồng bộ tiền tố là bắt cả ba kho
+// phía trước đổi theo mà không đổi lấy được điều gì.
+model SavedPlace {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  // Phân biệt "bookmark để ghé thăm" (saved) và "yêu thích" (liked)
+  // Default `saved` giữ tương thích ngược với dữ liệu hiện có.
+  kind SavedPlaceKind @default(saved)
+
+  note String? // Ghi chú riêng của người dùng (VD: "Đặt bàn trước 3 ngày")
+
+  savedAt DateTime @default(now())
+
+  // Mỗi user chỉ có 1 bản ghi cho mỗi (điểm cầu, kind)
+  @@unique([userId, warehouseId, kind])
+  @@index([userId, kind, savedAt(sort: Desc)])
+  @@index([warehouseId])
+  @@map("saved_places")
+}

@@ -1,0 +1,50 @@
+// Loại media của điểm cầu
+enum LocationMediaKind {
+  cover // Ảnh bìa chính (1 ảnh)
+  gallery // Ảnh phòng trưng bày
+  banner // Banner quảng cáo trong app
+  intro_video // Video giới thiệu (Mux)
+  /// lịch sử — không còn mã nào ghi.
+  ///
+  /// ⚠ "Thực đơn" chỉ có nghĩa với ĐỊA ĐIỂM KINH DOANH theo ngành ăn uống. Sau
+  /// khi gộp (07/09/2026) điểm cầu không có ngành, nên mọi đường ghi đã bỏ giá
+  /// trị này. Giá trị vẫn phải nằm lại trong schema vì Postgres KHÔNG xoá được
+  /// một giá trị enum đã tạo, và mọi hàng cũ mang nhãn đó phải đọc lại được.
+  menu
+}
+
+// Media (ảnh / video) của điểm cầu (kho)
+//
+// ⚠ Trước 07/09/2026 bảng này là bảng ảnh của "địa điểm kinh doanh". Xem
+// `warehouse-hours.prisma` để biết vì sao đổi neo sang `Warehouse`.
+model WarehouseMedia {
+  id String @id @default(cuid())
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  kind      LocationMediaKind // Loại media
+  sortOrder Int               @default(0) // Thứ tự hiển thị
+
+  // Uploadthing (ảnh)
+  uploadthingFileKey String? // File key từ Uploadthing
+  uploadthingUrl     String? // URL công khai từ Uploadthing
+
+  // Mux (video)
+  muxAssetId    String? // Asset ID từ Mux
+  muxPlaybackId String? // Playback ID từ Mux (dùng để stream)
+  muxPosterUrl  String? // URL ảnh thumbnail từ Mux
+
+  // Caption / alt text
+  caption String? // Chú thích hiển thị dưới ảnh/video
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([warehouseId])
+  @@index([warehouseId, kind])
+  @@index([warehouseId, sortOrder])
+  @@map("warehouse_media")
+}

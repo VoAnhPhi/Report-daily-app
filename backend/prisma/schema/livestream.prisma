@@ -1,0 +1,329 @@
+// prisma/livestream.prisma
+
+enum LiveStreamVisibility {
+  PUBLIC
+  FOLLOWERS_ONLY
+  PRIVATE
+  UNLISTED
+}
+
+enum LiveStreamStatus {
+  DRAFT
+  READY
+  LIVE
+  DISCONNECTED
+  ENDED
+  CANCELED
+}
+
+enum LiveStreamRole {
+  HOST
+  CO_HOST
+  MODERATOR
+  VIEWER
+}
+
+enum LiveStreamChatMessageKind {
+  USER
+  SYSTEM
+}
+
+enum LiveStreamReactionType {
+  HEART
+  FIRE
+  CLAP
+  LAUGH
+  WOW
+  CRY
+}
+
+model LiveStream {
+  id          String               @id @default(uuid())
+  creatorId   String
+  title       String
+  description String?
+  visibility  LiveStreamVisibility @default(PUBLIC)
+  status      LiveStreamStatus     @default(DRAFT)
+
+  scheduledFor DateTime?
+  startedAt    DateTime?
+  endedAt      DateTime?
+
+  // ---- LiveKit identifiers for real-time WebRTC streaming
+  livekitRoomName String? @unique
+  livekitRoomSid  String? @unique
+
+  // For signed playback setups ("public" | "signed")
+  playbackPolicy String?
+
+  posterUrl String?
+
+  isChatEnabled      Boolean @default(true)
+  isReactionsEnabled Boolean @default(true)
+  slowModeSeconds    Int?
+  isSubscriberOnly   Boolean @default(false)
+
+  disconnectedAt    DateTime?
+  gracePeriodEndsAt DateTime?
+
+  creator              User                            @relation("UserLiveStreamsCreated", fields: [creatorId], references: [id])
+  broadcasts           LiveStreamBroadcast[]
+  participants         LiveStreamParticipant[]
+  messages             LiveStreamChatMessage[]
+  reactions            LiveStreamReaction[]
+  webhooks             LiveStreamWebhookEvent[]
+  bans                 ModerateLiveStreamBan[]
+  pinnedProducts       LiveStreamPinnedProduct[]
+  affiliateCommissions LiveStreamAffiliateCommission[]
+  polls                LiveStreamPoll[]
+  livestreamReviews    LivestreamReview[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([creatorId])
+  @@index([status, scheduledFor])
+  @@index([createdAt])
+  @@map("live_streams")
+}
+
+//
+// A LiveStream can be reused across multiple "go live" sessions.
+// Each time it goes LIVE, create/close a Broadcast record.
+//
+model LiveStreamBroadcast {
+  id           String @id @default(uuid())
+  liveStreamId String
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  // Recording produced from this broadcast (Mux VOD assets)
+  muxAssetId    String? @unique
+  muxPlaybackId String? @unique
+
+  peakViewers Int     @default(0)
+  isFlagged   Boolean @default(false)
+
+  liveStream LiveStream @relation(fields: [liveStreamId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([liveStreamId, startedAt])
+  @@map("live_stream_broadcasts")
+}
+
+model LiveStreamParticipant {
+  id           String         @id @default(uuid())
+  liveStreamId String
+  userId       String
+  role         LiveStreamRole @default(VIEWER)
+
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+  isBanned Boolean   @default(false)
+
+  liveStream LiveStream @relation(fields: [liveStreamId], references: [id])
+  user       User       @relation("UserLiveStreamParticipants", fields: [userId], references: [id])
+
+  @@unique([liveStreamId, userId])
+  @@index([liveStreamId, role])
+  @@map("live_stream_participants")
+}
+
+model LiveStreamChatMessage {
+  id           String                    @id @default(uuid())
+  liveStreamId String
+  userId       String?
+  kind         LiveStreamChatMessageKind @default(USER)
+
+  content  String
+  isPinned Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  liveStream LiveStream @relation(fields: [liveStreamId], references: [id])
+  user       User?      @relation("UserLiveStreamChatMessages", fields: [userId], references: [id])
+
+  @@index([liveStreamId, createdAt])
+  @@map("live_stream_chat_messages")
+}
+
+model LiveStreamReaction {
+  id           String                 @id @default(uuid())
+  liveStreamId String
+  userId       String
+  type         LiveStreamReactionType
+
+  createdAt DateTime @default(now())
+
+  liveStream LiveStream @relation(fields: [liveStreamId], references: [id])
+  user       User       @relation("UserLiveStreamReactions", fields: [userId], references: [id])
+
+  @@index([liveStreamId, createdAt])
+  @@index([liveStreamId, type])
+  @@map("live_stream_reactions")
+}
+
+model LiveStreamWebhookEvent {
+  id String @id @default(uuid())
+
+  // If you can resolve it (via muxLiveStreamId), link it; otherwise allow null
+  liveStreamId String?
+  muxEventId   String? @unique
+
+  type       String
+  payload    Json
+  occurredAt DateTime?
+  receivedAt DateTime  @default(now())
+
+  liveStream LiveStream? @relation(fields: [liveStreamId], references: [id])
+
+  @@index([type, receivedAt])
+  @@map("live_stream_webhook_events")
+}
+
+model ModerateLiveStreamBan {
+  id           String    @id @default(uuid())
+  liveStreamId String
+  userId       String
+  bannedById   String
+  reason       String?
+  createdAt    DateTime  @default(now())
+  revokedAt    DateTime?
+
+  liveStream LiveStream @relation(fields: [liveStreamId], references: [id])
+
+  // Need explicit relation names because there are 2 FKs to User
+  user     User @relation("UserLiveStreamBansModerated", fields: [userId], references: [id])
+  bannedBy User @relation("UserLiveStreamBansModerator", fields: [bannedById], references: [id])
+
+  @@unique([liveStreamId, userId])
+  @@map("live_stream_bans")
+}
+
+model LiveStreamSettings {
+  id                  String               @id @default(cuid())
+  userId              String               @unique
+  defaultTitle        String?
+  defaultDescription  String?
+  defaultVisibility   LiveStreamVisibility @default(PUBLIC)
+  defaultThumbnailUrl String?
+  rtmpUrl             String?
+  streamKey           String?
+  ingressId           String?
+  affiliateEnabled    Boolean              @default(false)
+  isCreatorBanned     Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([userId])
+  @@map("live_stream_settings")
+}
+
+enum LiveStreamCommissionStatus {
+  PENDING
+  CALCULATED
+  PAID
+  CANCELLED
+}
+
+model LiveStreamPinnedProduct {
+  id           String    @id @default(uuid())
+  liveStreamId String
+  productId    String
+  pinnedById   String
+  sortOrder    Int       @default(0)
+  isPinned     Boolean   @default(false)
+  pinnedAt     DateTime  @default(now())
+  unpinnedAt   DateTime?
+
+  liveStream LiveStream @relation(fields: [liveStreamId], references: [id])
+  product    Product    @relation("ProductLiveStreamPins", fields: [productId], references: [id])
+  pinnedBy   User       @relation("UserLiveStreamPinnedProducts", fields: [pinnedById], references: [id])
+
+  @@unique([liveStreamId, productId])
+  @@index([liveStreamId, sortOrder])
+  @@index([liveStreamId, isPinned])
+  @@map("live_stream_pinned_products")
+}
+
+enum LiveStreamPollStatus {
+  ACTIVE
+  ENDED
+}
+
+model LiveStreamPoll {
+  id           String               @id @default(uuid())
+  liveStreamId String
+  creatorId    String
+  question     String
+  status       LiveStreamPollStatus @default(ACTIVE)
+  endsAt       DateTime?
+
+  liveStream LiveStream             @relation(fields: [liveStreamId], references: [id])
+  creator    User                   @relation("UserLiveStreamPolls", fields: [creatorId], references: [id])
+  options    LiveStreamPollOption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([liveStreamId, status])
+  @@index([liveStreamId, createdAt])
+  @@map("live_stream_polls")
+}
+
+model LiveStreamPollOption {
+  id     String @id @default(uuid())
+  pollId String
+  label  String
+
+  poll  LiveStreamPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes LiveStreamPollVote[]
+
+  createdAt DateTime @default(now())
+
+  @@index([pollId])
+  @@map("live_stream_poll_options")
+}
+
+model LiveStreamPollVote {
+  id       String @id @default(uuid())
+  optionId String
+  userId   String
+
+  option LiveStreamPollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user   User                 @relation("UserLiveStreamPollVotes", fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([optionId, userId])
+  @@index([optionId])
+  @@map("live_stream_poll_votes")
+}
+
+model LiveStreamAffiliateCommission {
+  id                      String                     @id @default(uuid())
+  orderId                 String
+  productId               String
+  liveStreamId            String
+  creatorId               String
+  creatorCommissionRate   Decimal                    @db.Decimal(5, 4)
+  creatorCommissionAmount Decimal                    @db.Decimal(15, 2)
+  status                  LiveStreamCommissionStatus @default(PENDING)
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+
+  order      Order      @relation("OrderLiveStreamCommissions", fields: [orderId], references: [id])
+  liveStream LiveStream @relation(fields: [liveStreamId], references: [id])
+  product    Product    @relation("ProductLiveStreamCommissions", fields: [productId], references: [id])
+  creator    User       @relation("UserLiveStreamCommissions", fields: [creatorId], references: [id])
+
+  @@index([liveStreamId])
+  @@index([orderId])
+  @@index([creatorId, status])
+  @@map("live_stream_affiliate_commissions")
+}

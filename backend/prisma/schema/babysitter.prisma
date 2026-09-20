@@ -1,0 +1,148 @@
+// ==================== BABYSITTER FLOW ====================
+
+enum BabyAdoptionStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+enum BabyLogType {
+  ASSIGNED
+  DROPPED
+  ADMIN_DROPPED
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_DELETED
+  MONEY_RECEIVED
+  // Phase 11 — adoption workflow events
+  ADOPTION_REQUESTED
+  ADOPTION_APPROVED
+  ADOPTION_REJECTED
+  ADOPTION_CANCELLED
+}
+
+// Baby record: one row per baby-babysitter assignment (active OR historical).
+//
+// ACTIVE assignment:  droppedAt IS NULL.
+// DROPPED assignment: droppedAt IS NOT NULL.
+//
+// One baby can only have ONE active babysitter at a time. This invariant is
+// enforced at the service layer (Phase 7) AND by a partial unique index applied
+// via raw SQL after db push:
+//   CREATE UNIQUE INDEX IF NOT EXISTS babies_user_active_unique
+//     ON babies ("userId") WHERE "droppedAt" IS NULL;
+//
+// DO NOT add @unique on userId — it would block historical rows.
+//
+// ELIGIBILITY WINDOW for F3 commissions (Phase 8):
+//   order.createdAt >= baby.assignedAt
+//   AND (baby.droppedAt IS NULL OR order.createdAt < baby.droppedAt)
+model Baby {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation("UserBaby", fields: [userId], references: [id], onDelete: Cascade)
+
+  babysitterId String
+  babysitter   User   @relation("BabysitterBabies", fields: [babysitterId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+
+  // Soft-unlink: set on drop or admin-drop. Null = currently active.
+  droppedAt DateTime?
+
+  // Who performed the drop (null = babysitter self-drop)
+  droppedById String?
+
+  // Phase 11: adoption approval workflow
+  status       BabyAdoptionStatus @default(pending)
+  approvedById String?
+  approvedAt   DateTime?
+  rejectedById String?
+  rejectedAt   DateTime?
+  rejectReason String?
+  cancelledAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs  BabyLog[]
+  tasks BabysitterTask[]
+
+  @@index([userId])
+  @@index([babysitterId])
+  @@index([babysitterId, droppedAt])
+  @@index([userId, droppedAt])
+  @@index([assignedAt])
+  @@index([status]) // Phase 11 — admin work-queue filter
+  @@index([babysitterId, status]) // Phase 11 — listMyBabies filter
+  // Partial unique enforced via raw SQL after db push.
+  // Phase 6 script (06-babysitter-partial-index.sql) is superseded by
+  // Phase 11 script (11-baby-status-active-unique.sql):
+  //   DROP INDEX IF EXISTS babies_user_active_unique;
+  //   CREATE UNIQUE INDEX IF NOT EXISTS babies_user_approved_active_unique
+  //     ON babies ("userId") WHERE status = 'approved' AND "droppedAt" IS NULL;
+  @@map("babies")
+}
+
+// Insert-only audit log for all babysitter-domain events.
+// DO NOT update or soft-delete rows — this is a permanent audit trail.
+model BabyLog {
+  id String @id @default(cuid())
+
+  babyId String
+  baby   Baby   @relation(fields: [babyId], references: [id], onDelete: Cascade)
+
+  type BabyLogType
+
+  // Who triggered the event; null = system (MONEY_RECEIVED)
+  actorId String?
+  actor   User?   @relation("BabyLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  // For MONEY_RECEIVED: AffiliateCommission row id that was finalized
+  commissionId String?
+
+  // For TASK_* events: BabysitterTask id
+  taskId String?
+
+  // For MONEY_RECEIVED: commission amount in VND
+  amount Decimal? @db.Decimal(15, 2)
+
+  // Optional human note (e.g., drop reason for ADMIN_DROPPED)
+  note String?
+
+  createdAt DateTime @default(now())
+
+  @@index([babyId])
+  @@index([type])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("baby_logs")
+}
+
+// Calendar-note proof of care. Soft-deleted via isDeleted flag.
+model BabysitterTask {
+  id String @id @default(cuid())
+
+  babysitterId String
+  babysitter   User   @relation("BabysitterTasks", fields: [babysitterId], references: [id], onDelete: Cascade)
+
+  babyId String
+  baby   Baby   @relation(fields: [babyId], references: [id], onDelete: Cascade)
+
+  imageUrl String? // Single CDN image URL (frontend uploads, backend stores URL)
+  note     String?
+
+  dateChose DateTime // Care date selected by babysitter (calendar picker)
+  isDeleted Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([babysitterId])
+  @@index([babyId])
+  @@index([babysitterId, isDeleted])
+  @@index([dateChose])
+  @@map("babysitter_tasks")
+}

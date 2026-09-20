@@ -1,0 +1,165 @@
+enum PurchaseOrderStatus {
+  draft
+  pending_approval
+  approved
+  partially_received
+  received
+  cancelled
+}
+
+model PurchaseOrder {
+  id   String @id @default(cuid())
+  code String @unique // Mã đơn mua hàng
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietPurchaseOrderId Int? @unique // ID đơn mua hàng từ KiotViet
+  kiotVietWarehouseId     Int? // ID kho hàng từ KiotViet
+  kiotVietSupplierId      Int? // ID nhà cung cấp từ KiotViet
+  kiotVietPurchaseById    Int? // ID người mua từ KiotViet
+
+  // Thông tin về nhập hàng
+  description        String? // Mô tả
+  purchaseDate       DateTime // Ngày mua hàng
+  discount           Decimal             @default(0) @db.Decimal(15, 2) // Giảm giá
+  discountRatio      Float               @default(0) // Tỷ lệ giảm giá
+  status             PurchaseOrderStatus @default(draft) // Trạng thái
+  exReturnBusinesses Decimal?            @default(0) @db.Decimal(15, 2) // Giá trị trả hàng từ đối tác
+  exReturnThirdParty Decimal?            @default(0) @db.Decimal(15, 2) // Giá trị trả hàng từ bên thứ ba
+  source             OriginSource        @default(acta) // Nguồn gốc
+
+  // ==================== NATIVE PO WORKFLOW (acta) ====================
+  expectedArrivalDate DateTime? // Ngày dự kiến nhập kho
+  totalCost           Decimal   @default(0) @db.Decimal(15, 2) // Tổng giá trị đơn nhập
+  evidence            Json? // [{url, fileName, contentType, size}] — UploadThing whitelisted
+  notes               String?   @db.Text
+
+  // Supplier (freeform v1, no Supplier model)
+  supplierName    String?
+  supplierPhone   String?
+  supplierAddress String?
+
+  // Linked WarehouseReview (purchase_order_approval)
+  reviewId String?          @unique
+  review   WarehouseReview? @relation(fields: [reviewId], references: [id])
+
+  // Status lifecycle timestamps
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  receivedAt  DateTime?
+  cancelledAt DateTime?
+
+  approvedById String?
+  approvedBy   User?   @relation("UserPurchaseOrdersApproved", fields: [approvedById], references: [id])
+
+  receivedById String?
+  receivedBy   User?   @relation("UserPurchaseOrdersReceived", fields: [receivedById], references: [id])
+
+  cancelledById String?
+
+  purchaseOrderDetails PurchaseOrderDetail[]
+  payments             PurchaseOrderPayment[]
+
+  // Warehouse information - Thông tin kho hàng
+  warehouseId String // ID kho hàng
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  // Business information - Thông tin nhà cung cấp
+  businessId String // ID nhà cung cấp
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  orderBusinessId String?
+  orderBusiness   OrderBusiness? @relation(fields: [orderBusinessId], references: [id])
+
+  // Purchase information - Thông tin mua hàng
+  purchaseById String? // ID người mua
+  purchaseName String // Tên người mua
+  purchaseBy   User?   @relation("UserPurchaseOrders", fields: [purchaseById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([status])
+  @@index([purchaseDate])
+  @@index([discount])
+  @@index([discountRatio])
+  @@index([exReturnBusinesses])
+  @@index([exReturnThirdParty])
+  @@index([businessId, status, warehouseId])
+  @@index([warehouseId, createdAt])
+  @@index([expectedArrivalDate])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderDetail {
+  id String @id @default(cuid())
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietProductId Int? // ID sản phẩm từ KiotViet
+
+  // Thông tin về chi tiết nhập hàng
+  quantity         Int // Số lượng đặt nhập
+  receivedQuantity Int          @default(0) // Số lượng đã nhận (per-line partial receive)
+  price            Decimal      @db.Decimal(15, 2) // Giá
+  unitCost         Decimal?     @db.Decimal(15, 2) // Giá vốn đơn vị tại thời điểm nhập
+  discount         Decimal      @db.Decimal(15, 2) // Giảm giá
+  serialNumber     String? // Số seri
+  source           OriginSource @default(acta) // Nguồn gốc
+
+  // Thông tin về sản phẩm
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  productBatchExpireId String?
+  productBatchExpire   ProductBatchExpire? @relation(fields: [productBatchExpireId], references: [id])
+
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@index([productBatchExpireId])
+  @@index([quantity])
+  @@index([price])
+  @@index([discount])
+  @@index([serialNumber])
+  @@map("purchase_order_details")
+}
+
+model PurchaseOrderPayment {
+  id   String @id @default(cuid())
+  code String @unique // Mã thanh toán
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietPaymentId Int? @unique // ID thanh toán từ KiotViet
+  kiotVietAccountId Int? // ID tài khoản ngân hàng từ KiotViet
+
+  amount      Decimal       @db.Decimal(15, 2) // Số tiền thanh toán
+  method      PaymentMethod // Phương thức thanh toán
+  status      PaymentStatus // Trạng thái thanh toán
+  transDate   DateTime // Ngày thanh toá
+  bankAccount String // Nơi nhận thanh toán - có thể thanh toán tại quầy hoặc ck
+  description String? // Ghi chú
+  source      OriginSource  @default(acta) // Nguồn gốc
+
+  accountId String?      @unique
+  account   BankAccount? @relation(fields: [accountId], references: [id])
+
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([purchaseOrderId])
+  @@index([accountId])
+  @@index([amount])
+  @@index([method])
+  @@index([status])
+  @@index([transDate])
+  @@index([bankAccount])
+  @@map("purchase_order_payments")
+}

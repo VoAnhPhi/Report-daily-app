@@ -1,0 +1,862 @@
+enum TransitionOperationStatus {
+  pending
+  in_progress
+  completed
+  failed
+}
+
+enum PaymentStatus {
+  paid // Đã thanh toán
+  processing // Đang xử lý
+  canceled // Đã hủy
+  refunded // Đã hoàn tiền
+  failed // Thanh toán thất bại
+}
+
+// Enums - Các kiểu dữ liệu liệt kê
+enum OrderStatus {
+  draft // Phiếu tạm
+  confirmed // Đã xác nhận
+  packing // Đang đóng gói
+  packing_completed // Đã đóng gói
+  delivering // Đang giao hàng
+  completed // Hoàn thành
+  cancelled // Đã hủy
+  shipped // Đã giao hàng
+  temp_completed // Tạm hoàn thành (chờ xác nhận cuối)
+  refunded // Đã hoàn tiền
+  returned // Đã trả hàng
+}
+
+enum DeliveryStatus {
+  draft // Đã thanh toán/xác nhận đơn thành công
+  created // Nhân viên kho đã gói hàng và tạo đơn bên GHTK
+  delivering // Nhân viên ship đã đến lấy hàng (từ webhook GHTK)
+  completed // Đã giao hàng
+  cancelled // Đã hủy
+}
+
+enum OrderDeliveryType {
+  ship_cod // Giao hàng thu tiền (COD)
+  prepaid_ship // Giao hàng trả trước
+  warehouse_pickup // Nhận tại kho
+}
+
+// Source of the dims/weight that were sent to GHN for the locked fee.
+//   aalb     — bin-packed envelope from product master pack dims (default)
+//   evidence — manual {l, w, h, weight} captured via OrderPackingEvidence
+enum ShippingFeeDimensionSource {
+  aalb
+  evidence
+}
+
+enum OrderVatType {
+  personal // Cá nhân
+  company // Doanh nghiệp/Tổ chức
+}
+
+enum OrderVatStatus {
+  pending // Chờ xử lý
+  processing // Đang xử lý
+  completed // Đã hoàn thành
+  cancelled // Đã hủy
+}
+
+// ==================== WAREHOUSE ASSIGNMENT ====================
+enum WarehouseAssignmentStatus {
+  pending // Chờ warehouse xử lý
+  accepted // Warehouse đã chấp nhận
+  denied // Warehouse từ chối
+  reassigned // Đã chuyển sang warehouse khác
+}
+
+enum WarehouseDecisionType {
+  accepted // Chấp nhận xử lý đơn
+  denied // Từ chối xử lý đơn
+}
+
+// ==================== PACKING WORKFLOW ENUMS ====================
+enum PackingItemStatus {
+  pending // Chờ xác nhận
+  confirmed // Đã xác nhận
+  issue // Có vấn đề
+  skipped // Bỏ qua
+}
+
+enum PackingIssueType {
+  shortage // Thiếu hàng
+  damaged // Hàng hư hỏng
+  wrong_item // Sai hàng
+  out_of_stock // Hết hàng
+}
+
+enum PackingExceptionType {
+  shortage // Thiếu hàng
+  wrong_item // Sai hàng
+  damaged // Hàng hư hỏng
+  out_of_stock // Hết hàng
+  other // Khác
+}
+
+enum PackingExceptionStatus {
+  open // Đang mở
+  escalated // Đã chuyển cấp
+  resolved // Đã giải quyết
+  canceled // Đã hủy
+}
+
+enum PackingExceptionGateStatus {
+  none // Không có vấn đề
+  open // Có vấn đề đang mở
+  escalated // Đã chuyển cấp
+  resolved // Đã giải quyết
+}
+
+model Order {
+  id   String @id @default(cuid())
+  code String @unique // Mã đơn hàng
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietOrderId       Int?    @unique // ID đơn hàng từ KiotViet
+  kiotVietOrderCode     String? // Mã đơn hàng từ KiotViet
+  kiotVietWarehouseId   Int? // ID kho hàng từ KiotViet
+  kiotVietCustomerId    Int? // ID khách hàng từ KiotViet
+  kiotVietSoldById      Int? // ID người bán từ KiotViet
+  kiotVietSaleChannelId Int? // ID kênh bán hàng từ KiotViet
+
+  // Thông tin đặt hàng
+  purchaseDate DateTime // Ngày mua hàng
+  description  String? // Mô tả đơn hàng
+  source       OriginSource @default(acta) // Nguồn gốc
+
+  // Status - trạng thái đơn hàng
+  status        OrderStatus   @default(draft)
+  paymentStatus PaymentStatus @default(processing)
+  usingCod      Boolean       @default(false) // Sử dụng COD
+
+  // Pricing - Giá
+  subtotal    Decimal @default(0) @db.Decimal(15, 2)
+  shippingFee Decimal @default(0) @db.Decimal(15, 2)
+  discount    Decimal @default(0) @db.Decimal(15, 2)
+  total       Decimal @default(0) @db.Decimal(15, 2)
+
+  // Ảnh chụp số tiền tại thời điểm ghi nhận đã thanh toán (paymentStatus → paid).
+  // Storefront đọc 2 field này thay cho shippingFee/total live ⇒ thao tác admin
+  // sau đó (relock phí GHN, sửa item) không đổi số khách đã thấy lúc trả tiền.
+  // Null = đơn cũ trước tính năng này hoặc chưa thanh toán ⇒ fallback đọc live.
+  paidShippingFee Decimal? @db.Decimal(15, 2)
+  paidTotal       Decimal? @db.Decimal(15, 2)
+
+  // Payments - Thanh toán
+  payments OrderPayment[]
+
+  // Shipping - Vận chuyển 
+  trackingNumber    String? // Mã theo dõi
+  estimatedDelivery DateTime? // Ngày giao hàng dự kiến
+  deliveredAt       DateTime? // Ngày giao hàng thực tế
+
+  // Notes - Ghi chú
+  customerNote       String? // Ghi chú của khách hàng (chỉ nội dung khách nhập)
+  adminNote          String? // Ghi chú của ban quản trị
+  cancellationReason String? // Lý do huỷ đơn (hệ thống / khách / admin) — tách khỏi customerNote để không in lên phiếu GHN
+
+  // Warehouse - Kho hàng (assigned by admin after order creation)
+  warehouseId String? // ID kho hàng - null until admin assigns
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id])
+
+  // Warehouse group (khu vực / region) chosen by customer at checkout.
+  // Admin's later node assignment is restricted to warehouses inside this group
+  // unless an explicit override is logged. Nullable for legacy orders and
+  // prepaid_ship flows where the customer did not pick a region.
+  warehouseGroupId        String?
+  warehouseGroup          WarehouseGroup? @relation(fields: [warehouseGroupId], references: [id], onDelete: SetNull)
+  warehouseGroupChangedAt DateTime? // Last time an admin overrode the group
+
+  // Discount
+  discountRatio Float? // Tỷ lệ giảm giá
+
+  // Customer - Khách hàng
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  orderDetails OrderDetail[] // Chi tiết đơn hàng
+
+  invoiceOrderSurcharges InvoiceOrderSurcharge[] // Thu khác
+
+  orderDeliveryId String?
+  orderDelivery   OrderDelivery?
+
+  saleChannelId String?
+  saleChannel   SaleChannel? @relation(fields: [saleChannelId], references: [id])
+
+  reviews Review[] // Đánh giá sau khi mua
+  ratings Rating[] // Đánh giá sản phẩm
+
+  invoices Invoice[] // Hóa đơn
+
+  // Affiliate commissions
+  affiliateCommissions           AffiliateCommission[]
+  affiliateCommissionLogs        AffiliateCommissionLog[]
+  liveStreamAffiliateCommissions LiveStreamAffiliateCommission[] @relation("OrderLiveStreamCommissions")
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  paidAt            DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  clientRequestId   String?   @unique
+  refundRequestedAt DateTime? // When refund was first requested
+  refundedAt        DateTime? // When refund was completed
+
+  // Voucher Relations
+  voucherUsageHistory VoucherUsageHistory[] @relation("VoucherUsageInOrder")
+
+  // Delivery Relations
+  deliveryLogs OrderDeliveryLog[] @relation("OrderDeliveryLogs")
+
+  // VAT Invoice Relations
+  orderVat OrderVat?
+
+  // Invoice Profile Relations
+  invoiceProfileId String?
+  invoiceProfile   InvoiceProfile? @relation(fields: [invoiceProfileId], references: [id])
+
+  // Notification relations
+  notifications Notification[]
+
+  // Warehouse assignment
+  warehouseAssignments OrderWarehouseAssignment[]
+
+  // Packing workflow
+  packingItems      OrderPackingItem[]
+  packingEvidence   OrderPackingEvidence[]
+  packingExceptions OrderPackingException[]
+
+  // Packing exception gate
+  packingExceptionStatus PackingExceptionGateStatus @default(none)
+  hasPackingException    Boolean                    @default(false)
+  packingBlockedAt       DateTime?
+  packingBlockedById     String?
+  packingResolvedAt      DateTime?
+  packingResolvedById    String?
+
+  // Packing completion summary
+  packedWeight Decimal?  @db.Decimal(10, 2)
+  packedAt     DateTime?
+  packedById   String?
+
+  // Transition operations
+  transitionOperations OrderTransitionOperation[]
+
+  // Approval reviews (e.g. status transition gate)
+  orderReviews OrderReview[] @relation("OrderReviews")
+
+  // Inventory reservations
+  inventoryReservations InventoryReservation[]
+
+  // Gratitude Relations
+  orderGratitudes OrderGratitude[]
+
+  // Thù lao kho vận — neo beneficiary (one-to-one, optional)
+  orderWarehouseLogistics OrderWarehouseLogistics?
+
+  // Bằng chứng bàn giao đơn kho CTV khi "Hoàn thành đơn" (JSON [{url,name?,type?,size?}]).
+  // Xuất bill chỉ là thao tác UI (in PDF) — không lưu; chỉ lưu bằng chứng hoàn thành.
+  ctvHandoverEvidence Json?
+
+  // Group-buy link (one-to-one, optional — set at Phase 16 checkout)
+  groupBuy GroupBuy?
+
+  // Gift order info (1:1, optional). Set when buyer chose gift checkout.
+  giftInfo OrderGiftInfo?
+
+  // Multi-tenant scoping
+  businessId String?
+  business   Business? @relation("BusinessOrders", fields: [businessId], references: [id], onDelete: SetNull)
+
+  // Gamification points lock — once awarded, this order is sealed.
+  // Cleared only via the super-admin unlock endpoint (writes a new
+  // log + a reason) which must run before any re-award is allowed.
+  pointsAwardedAt      DateTime?
+  pointsAwardedById    String?
+  pointsAwardedTrigger String?
+  isGratitudeExpired   Boolean   @default(false)
+
+  // Late-payment recovery flag — true khi đơn đã bị hủy nhưng admin
+  // chuyển sang completed do nhận thanh toán muộn từ Pay2S. Frontend
+  // dùng cờ này để hiển thị nhắc xuất hóa đơn VAT.
+  completedFromLatePayment Boolean   @default(false)
+  // True khi đơn đã hủy được MỞ LẠI (cancelled → confirmed) do nhận thanh
+  // toán muộn từ Pay2S — khoản tiền muộn được ghi nhận là thanh toán của đơn
+  // (paymentStatus = paid). Frontend dùng cờ này để hiển thị nhãn "Đã thanh
+  // toán (muộn)" phân biệt với thanh toán đúng hạn.
+  paidViaLatePayment       Boolean   @default(false)
+  latePaymentResolvedAt    DateTime?
+  latePaymentResolvedById  String?
+
+  // Checkout-hold redesign §3 Task 1.3c (Decision G1 + Architect Note #5) —
+  // tracks Pay2S session state for post-commit retry semantics. Values:
+  // 'pending' (default before initiate), 'active' (Pay2S session created),
+  // 'retry_needed' (Pay2S call failed after Order committed; UI retries),
+  // 'completed', 'failed'.
+  pay2sSessionStatus String? @default("pending")
+
+  @@index([businessId])
+  @@index([warehouseId])
+  @@index([customerId])
+  @@index([status, createdAt])
+  @@index([status, updatedAt])
+  @@index([paymentStatus])
+  @@index([trackingNumber])
+  @@index([clientRequestId])
+  @@index([completedAt])
+  @@index([paidAt])
+  @@index([customerId, createdAt])
+  @@index([warehouseGroupId, warehouseId, status])
+  @@map("orders")
+}
+
+model OrderPayment {
+  id   String @id @default(cuid())
+  code String @unique // Mã thanh toán
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietPaymentId   Int?    @unique // ID thanh toán từ KiotViet
+  kiotVietPaymentCode String? // Mã thanh toán từ KiotViet
+  kiotVietAccountId   Int? // ID tài khoản ngân hàng từ KiotViet
+
+  // Payment information - Thông tin thanh toán
+  method      PaymentMethod // Phương thức thanh toán
+  status      PaymentStatus @default(processing) // Trạng thái thanh toán
+  amount      Decimal       @db.Decimal(10, 2) // Số tiền thanh toán
+  transDate   DateTime // Ngày thanh toán
+  bankAccount String // Nơi nhận thanh toán - có thể thanh toán tại quầy hoặc ck
+  description String? // Ghi chú
+  expiresAt   DateTime? // Thời gian hết hạn thanh toán
+  source      OriginSource  @default(acta) // Nguồn gốc
+
+  accountId String?      @unique
+  account   BankAccount? @relation(fields: [accountId], references: [id])
+
+  payment Payment?
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([kiotVietPaymentId])
+  @@index([amount])
+  @@map("order_payments")
+}
+
+model OrderDetail {
+  id String @id @default(cuid())
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietProductId  Int? // ID sản phẩm từ KiotViet
+  kiotVietBusinessId Int? // ID đối tác từ KiotViet
+
+  // Thông tin thành phần đặt hàng chi tiết
+  quantity      Int // Số lượng
+  price         Decimal  @default(0.00) @db.Decimal(15, 2) // Giá sản phẩm tại thời điểm mua hàng
+  taxRate       Float? // Tỷ lệ thuế
+  taxType       TaxType? // Loại thuế
+  taxName       String? // Tên thuế
+  discount      Decimal  @default(0) @db.Decimal(10, 2) // Giảm giá
+  discountRatio Float? // Tỷ lệ giảm giá
+  weight        Float?   @default(0.00) // Khối lượng sản phẩm (kg) 
+
+  // Text snapshots — prevent product renames from affecting historical reads (§22)
+  productName            String? // Tên sản phẩm tại thời điểm đặt hàng
+  productCode            String? // Mã sản phẩm tại thời điểm đặt hàng
+  productVariantSnapshot Json? // Frozen at purchase time: { axisName: optionLabel, ... } e.g. { "Size": "XL", "Color": "Xanh" }
+
+  isMaster Boolean      @default(false) // Là sản phẩm chính
+  note     String? // Ghi chú
+  source   OriginSource @default(acta) // Nguồn gốc
+
+  // Snapshot from Product at order time — for accurate revenue/commission tracking
+  commission532Fee          Float?  @default(0) // % chiết khấu 5-3-2 tại thời điểm mua
+  productFlag               String? @default("regular") // Product flag tại thời điểm mua (regular, special, priority, custom)
+  businessTeamCommission    Float?  @default(0) // % doanh số nhóm nghiệp vụ tại thời điểm mua
+  defaultPersonalCommission Float?  @default(0) // % chiết kh���u cá nhân tại thời điểm mua
+
+  // Combo product tracking - Theo dõi sản phẩm combo
+  isFromCombo   Boolean @default(false) // Là sản phẩm con từ combo virtual
+  comboParentId String? // ID của combo cha (nếu là sản phẩm con)
+
+  /// Kho CTV bán ra dòng này ĐÃ được chủ kho đặt cọc hay chưa, đóng băng lúc đặt hàng.
+  ///
+  /// Chỉ có nghĩa với dòng con của combo ảo: combo chuyển vào kho CTV mà chủ kho chưa
+  /// cọc thì KHÔNG sinh thù lao kho vận. Nguồn sự thật lúc chuyển kho là
+  /// `ProductBatchExpire.hasDeposit`/`depositAmount` của chính combo cha tại kho đó;
+  /// đóng băng ở đây để rail thù lao giữ được bất biến snapshot-only — nó không bao giờ
+  /// đọc lại `ProductBatchExpire`, nên hoàn cọc về sau không định giá lại đơn đã bán.
+  ///
+  /// Dòng KHÔNG phải combo bỏ qua cờ này hoàn toàn: sản phẩm lẻ luôn tính thù lao kho vận,
+  /// không phụ thuộc cọc.
+  hasWarehouseDeposit Boolean @default(false)
+
+  /// Dòng này là "sản phẩm lẻ bán ra từ kho cộng tác viên", đóng băng lúc đặt hàng.
+  ///
+  /// Vị từ: kho bán ra là kho CTV (khách nhập mã kho) VÀ dòng không phải con của combo
+  /// ảo. Cờ theo TÌNH HUỐNG, không phải thuộc tính của sản phẩm — cùng một sản phẩm bán
+  /// qua kho tổng vẫn là hàng thường.
+  ///
+  /// Ba hệ quả gắn với cờ này:
+  ///  1. `commission532Fee` của dòng đóng băng = 0 (hàng lẻ kho CTV không mang phí 5-3-2).
+  ///  2. Dòng không cộng vào `revenuePreTax`/`revenuePreTaxBusiness` — không tính chỉ tiêu
+  ///     doanh số cho chương trình Mốc Sàn.
+  ///  3. Đơn chứa dòng này KHÔNG được giao đi, chỉ nhận tại kho.
+  ///
+  /// CỐ Ý không loại đơn khỏi phép ĐẾM đơn của Mốc Sàn (TC2) hay phép đếm người mua
+  /// (TC3): đơn vẫn là một đơn thật của một người thật. Xem D-48-02.
+  isRetailFromCtv Boolean @default(false)
+
+  // Business - Đối tác bán hàng
+  soldById String
+  soldBy   Business @relation(fields: [soldById], references: [id])
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  // Commission Summary
+  commissionSummary CommissionSummary?
+
+  // Affiliate Commissions
+  affiliateCommissions AffiliateCommission[]
+
+  // Personal Commissions
+  personalCommissions PersonalCommission[]
+
+  // Team Commissions — one row per (orderDetail × team the buyer is in)
+  teamCommissions TeamCommission[]   @relation("OrderDetailTeamCommission")
+  // Packing items
+  packingItems    OrderPackingItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([kiotVietProductId])
+  @@index([quantity])
+  @@index([price])
+  @@index([discount])
+  @@index([discountRatio])
+  @@index([isMaster])
+  // Note: Removed @@index([note]) because TEXT fields can exceed PostgreSQL's
+  // 2704 byte B-tree index limit, causing errors on large notes.
+  // Notes are not typically used in WHERE clauses requiring an index.
+  @@map("order_details")
+}
+
+model OrderDelivery {
+  id   String @id @default(cuid())
+  code String @unique // Mã vận chuyển
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietOrderDeliveryId   Int? // ID vận chuyển từ KiotViet
+  kiotVietDeliveryCode      String? // Mã vận chuyển từ KiotViet
+  kiotVietLocationId        Int? // ID địa điểm từ KiotViet
+  kiotVietLocationName      String? // Tên địa điểm từ KiotViet
+  kiotVietPartnerDeliveryId Int? // ID đối tác vận chuyển từ KiotViet
+
+  type          OrderDeliveryType @default(ship_cod) // Loại giao hàng 
+  price         Decimal?          @db.Decimal(10, 2) // Giá vận chuyển
+  receiver      String // Người nhận
+  contactNumber String // Số điện thoại người nhận
+
+  // Địa chỉ giao hàng (người nhận)
+  province String  @default("") // Tỉnh/Thành phố (bắt buộc)
+  ward     String  @default("") // Phường/Xã (bắt buộc)
+  district String? // Quận/Huyện (tùy chọn)
+  address  String  @default("") // Địa chỉ chi tiết (addressLine1)
+
+  // Địa chỉ kho lấy hàng (warehouse/pickup address)
+  pickName     String?
+  pickAddress  String?
+  pickProvince String?
+  pickWard     String?
+  pickDistrict String?
+  pickStreet   String?
+  pickTel      String?
+  pickEmail    String?
+  // Trạng thái giao hàng
+  status       DeliveryStatus @default(draft)
+
+  weight Float? // Trọng lượng
+  length Float? // Chiều dài
+  width  Float? // Chiều rộng
+  height Float? // Chiều cao
+  source OriginSource @default(acta) // Nguồn gốc
+
+  ghtkOrderLabel     String? // Mã đơn hàng GHTK
+  ghtkTrackingNumber String? // Mã theo dõi GHTK
+  ghtkStatus         Int? // Trạng thái GHTK
+
+  // GHN fields
+  ghnOrderCode        String? // Mã đơn hàng GHN
+  ghnSortCode         String? // Mã sắp xếp GHN
+  ghnTransType        String? // Loại vận chuyển GHN
+  ghnTotalFee         Int? // Tổng phí GHN (kept for back-compat; prefer ghnRawFee + ghnFeeAdjustment)
+  ghnExpectedDelivery String? // Thời gian giao hàng dự kiến GHN
+  ghnStatus           String? // Trạng thái GHN (status code from GHN webhook)
+
+  // Raw vs adjusted shipping fee split (spec §4 round-up ladder).
+  // Customer-paid amount = Order.shippingFee = ghnRawFee + ghnFeeAdjustment.
+  ghnRawFee        Int? // Phí GHN gốc (chưa làm tròn) — exactly what GHN quoted
+  ghnFeeAdjustment Int? // Phí chênh lệch (sau làm tròn) — roundUp gain, informational
+
+  // Packed box snapshot (what was actually sent to GHN). Sourced from PackingService AABB.
+  packedLengthCm   Int? // Chiều dài thùng đã đóng (cm)
+  packedWidthCm    Int? // Chiều rộng thùng đã đóng (cm)
+  packedHeightCm   Int? // Chiều cao thùng đã đóng (cm)
+  packedWeightGram Int? // Trọng lượng thùng đã đóng (gram)
+
+  // Insurance basis snapshot (must equal order subtotal, NOT order.total). Spec §9.
+  insuranceValueBasis Decimal? @db.Decimal(15, 2)
+
+  // Which dim/weight source produced the locked fee — aalb (default) or evidence.
+  // Set every time relock-shipping-fee runs.
+  feeDimensionSource ShippingFeeDimensionSource?
+
+  // Packing evidence reopen tracking — admin can request a "Mở lại để bổ sung
+  // bằng chứng" window after packing is marked complete (e.g. wrong dims/weight
+  // discovered post-completion). Each reopen bumps the counter (visible badge)
+  // and refreshes the timestamp. The submit-evidence gate compares this
+  // against the latest evidence row's submittedAt to decide whether the form
+  // is currently unlocked. Locked again as soon as a new evidence is saved.
+  evidenceReopenCount    Int       @default(0)
+  evidenceLastReopenedAt DateTime?
+
+  // GHN metadata - cached from Address metadata for shipping
+  /// districtId: number | null
+  /// wardCode: string | null
+  /// provinceId: number | null
+  metadata Json? // Store GHN location codes for order creation
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  partnerDeliveryId String?
+  partnerDelivery   PartnerDelivery? @relation(fields: [partnerDeliveryId], references: [id])
+
+  // Delivery Log Relations
+  deliveryLogs OrderDeliveryLog[] @relation("OrderDeliveryLogs")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([partnerDeliveryId])
+  @@index([orderId])
+  @@index([status])
+  @@index([province])
+  @@index([ward])
+  @@index([district])
+  @@index([kiotVietOrderDeliveryId])
+  @@index([kiotVietDeliveryCode])
+  @@index([kiotVietLocationId])
+  @@index([kiotVietLocationName])
+  @@index([kiotVietPartnerDeliveryId])
+  @@index([type])
+  @@index([price])
+  @@index([receiver])
+  @@index([contactNumber])
+  @@index([address])
+  @@index([weight])
+  @@index([length])
+  @@index([width])
+  @@map("order_deliveries")
+}
+
+// ==================== ORDER DELIVERY LOG ====================
+// Lưu lịch sử thay đổi trạng thái delivery từ webhook
+model OrderDeliveryLog {
+  id String @id @default(cuid())
+
+  // Thông tin đơn hàng
+  orderId String
+  order   Order  @relation("OrderDeliveryLogs", fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Thông tin delivery
+  orderDeliveryId String?
+  orderDelivery   OrderDelivery? @relation("OrderDeliveryLogs", fields: [orderDeliveryId], references: [id])
+
+  // Thông tin webhook
+  webhookSource String // 'ghtk', 'ghn', 'viettel_post', 'manual'
+  webhookData   Json? // Raw webhook data
+  webhookStatus Int? // Status từ webhook (VD: GHTK status_id)
+
+  // Thay đổi trạng thái
+  oldStatus     DeliveryStatus?
+  newStatus     DeliveryStatus?
+  oldGhtkStatus Int?
+  newGhtkStatus Int?
+  oldGhnStatus  String?
+  newGhnStatus  String?
+
+  // Thông tin bổ sung
+  message String? // Mô tả thay đổi
+  notes   String? // Ghi chú thêm
+
+  // Metadata
+  createdAt DateTime @default(now())
+  createdBy String? // 'system', 'admin', 'webhook'
+
+  @@index([orderId])
+  @@index([orderDeliveryId])
+  @@index([webhookSource])
+  @@index([createdAt])
+  @@index([newStatus])
+  @@map("order_delivery_logs")
+}
+
+// ==================== ORDER VAT ====================
+// Lưu thông tin yêu cầu hóa đơn VAT
+model OrderVat {
+  id     String         @id @default(cuid())
+  // Trạng thái xử lý
+  status OrderVatStatus @default(pending) // pending | processing | completed | cancelled
+
+  // Liên kết với đơn hàng
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Liên kết với invoice profile (null cho B2C "Hoàn tất xuất kho" + cron backfill)
+  invoiceProfileId String?
+  invoiceProfile   InvoiceProfile? @relation(fields: [invoiceProfileId], references: [id], onDelete: SetNull)
+
+  // Metadata bổ sung: completedViaManualButton, backfilled, completionActor… (spec §2.3)
+  metadata Json?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  // Mốc hoàn tất BẤT BIẾN (D-107-23) — set-once bởi trigger DB order_vat_set_completed_at khi
+  // status→completed; cửa sổ kỳ CTV Mở Rộng khóa theo cột này, KHÔNG dùng updatedAt (mutable).
+  completedAt DateTime?
+
+  @@index([orderId])
+  @@index([status])
+  @@index([status, completedAt])
+  @@index([invoiceProfileId])
+  @@map("order_vat")
+}
+
+// ==================== ORDER WAREHOUSE ASSIGNMENT ====================
+// Gán đơn hàng cho kho xử lý
+model OrderWarehouseAssignment {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+
+  status WarehouseAssignmentStatus @default(pending)
+
+  // Người gán
+  assignedById String
+  assignedBy   User   @relation("AssignedWarehouseOrders", fields: [assignedById], references: [id])
+
+  // Lý do gán / gán lại
+  reason String?
+  note   String?
+
+  // Snapshot trạng thái đơn khi gán
+  orderStatusAtAssignment OrderStatus?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Quyết định của warehouse
+  decisions OrderWarehouseDecision[]
+
+  @@index([orderId])
+  @@index([warehouseId])
+  @@index([status])
+  @@index([assignedById])
+  @@index([orderId, status])
+  @@index([warehouseId, status])
+  @@index([createdAt])
+  @@map("order_warehouse_assignments")
+}
+
+// ==================== ORDER WAREHOUSE DECISION ====================
+// Quyết định của warehouse admin (chấp nhận / từ chối)
+model OrderWarehouseDecision {
+  id String @id @default(cuid())
+
+  assignmentId String
+  assignment   OrderWarehouseAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  decision WarehouseDecisionType // accepted / denied
+
+  // Lý do (bắt buộc khi denied)
+  reason String
+  note   String?
+
+  // Người quyết định
+  actorId String
+  actor   User   @relation("WarehouseDecisionActor", fields: [actorId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([assignmentId])
+  @@index([decision])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("order_warehouse_decisions")
+}
+
+// ==================== ORDER PACKING ITEM ====================
+// Danh sách kiểm tra đóng gói - mỗi mặt hàng trong đơn
+model OrderPackingItem {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  orderDetailId String
+  orderDetail   OrderDetail @relation(fields: [orderDetailId], references: [id])
+
+  expectedQty  Int
+  confirmedQty Int               @default(0)
+  status       PackingItemStatus @default(pending)
+  issueType    PackingIssueType?
+  note         String?           @db.Text
+  checkedBy    String?
+  checkedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  exceptions OrderPackingException[]
+
+  @@unique([orderId, orderDetailId])
+  @@index([orderId])
+  @@map("order_packing_items")
+}
+
+// ==================== ORDER PACKING EVIDENCE ====================
+// Bằng chứng đóng gói - ảnh, ghi chú, cân nặng
+model OrderPackingEvidence {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  imageUrls String[] @db.Text
+  // Per-file metadata captured at upload time so the UI can render images,
+  // video, PDF, etc. without sniffing extensions off opaque CDN URLs.
+  // Shape: Array<{ url: string, name?: string, type?: string, size?: number }>
+  files     Json     @default("[]")
+  note      String   @db.Text
+
+  weight Decimal  @db.Decimal(10, 2)
+  length Decimal? @db.Decimal(10, 2)
+  width  Decimal? @db.Decimal(10, 2)
+  height Decimal? @db.Decimal(10, 2)
+
+  submittedBy String
+  submittedAt DateTime @default(now())
+
+  // Mux ingestion for any video files attached to this evidence.
+  muxData MuxData[] @relation("OrderPackingEvidenceMuxData")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@map("order_packing_evidence")
+}
+
+// ==================== ORDER PACKING EXCEPTION ====================
+// Vấn đề phát sinh khi đóng gói
+model OrderPackingException {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  packingItemId String?
+  packingItem   OrderPackingItem? @relation(fields: [packingItemId], references: [id])
+
+  type         PackingExceptionType
+  expectedQty  Int
+  actualQty    Int
+  reason       String                 @db.Text
+  note         String?                @db.Text
+  evidenceUrls String[]               @db.Text
+  status       PackingExceptionStatus @default(open)
+
+  flaggedBy   String
+  flaggedAt   DateTime @default(now())
+  warehouseId String
+
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  resolution     String?   @db.Text
+  resolutionNote String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@map("order_packing_exceptions")
+}
+
+// ==================== ORDER TRANSITION OPERATION ====================
+// Theo dõi các thao tác chuyển trạng thái đơn hàng
+model OrderTransitionOperation {
+  id             String                    @id @default(cuid())
+  orderId        String
+  order          Order                     @relation(fields: [orderId], references: [id])
+  requestedBy    String
+  fromStatus     OrderStatus
+  toStatus       OrderStatus
+  reason         String
+  transitionType String // next_step, forward_jump, rollback, terminal
+  formData       Json?
+  rollbackPlan   Json?
+  status         TransitionOperationStatus @default(pending)
+  currentStep    String?
+  progress       Int                       @default(0)
+  result         Json?
+  error          String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  steps          OrderTransitionStep[]
+
+  @@index([orderId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("order_transition_operations")
+}
+
+// ==================== ORDER TRANSITION STEP ====================
+// Các bước trong thao tác chuyển trạng thái
+model OrderTransitionStep {
+  id          String                    @id @default(cuid())
+  operationId String
+  operation   OrderTransitionOperation  @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  stepName    String
+  stepLabel   String // Vietnamese label
+  status      TransitionOperationStatus @default(pending)
+  detail      String?
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([operationId])
+  @@map("order_transition_steps")
+}

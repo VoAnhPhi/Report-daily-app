@@ -1,0 +1,141 @@
+// Analytics Schema - Daily Aggregate Tables
+// These tables store pre-computed daily metrics for fast reporting queries
+// Refreshed via scheduled cron jobs to maintain performance
+
+model PaymentsDailyAgg {
+  id            String   @id @default(cuid())
+  day           DateTime // 00:00 UTC day bucket
+  provider      String
+  method        String
+  warehouseId   String?
+  saleChannelId String?
+
+  // Payment counts by status
+  pendingCount   Int @default(0)
+  succeededCount Int @default(0)
+  cancelledCount Int @default(0)
+  failedCount    Int @default(0)
+
+  // Amount totals by status
+  amountPending   Decimal @default(0) @db.Decimal(15, 2)
+  amountSucceeded Decimal @default(0) @db.Decimal(15, 2)
+
+  // Performance metrics
+  avgTimeToPaySec Int @default(0) // average seconds from created to succeeded
+  regenCount      Int @default(0) // fresh pending after a cancellation for same order/day
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([day, provider, method, warehouseId, saleChannelId])
+  @@index([day, provider, method])
+  @@index([day, warehouseId, saleChannelId])
+  @@map("payments_daily_agg")
+}
+
+model OrdersDailyAgg {
+  id            String   @id @default(cuid())
+  day           DateTime // 00:00 UTC day bucket
+  warehouseId   String?
+  saleChannelId String?
+
+  // Order counts by status
+  ordersCreated   Int @default(0)
+  ordersPayable   Int @default(0) // status = 'awaiting_payment'
+  ordersCompleted Int @default(0) // status = 'completed'
+  ordersCancelled Int @default(0) // status = 'cancelled'
+
+  // Financial metrics
+  aov     Decimal @default(0) @db.Decimal(15, 2) // Average Order Value
+  revenue Decimal @default(0) @db.Decimal(15, 2) // Gross revenue from succeeded payments
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([day, warehouseId, saleChannelId])
+  @@index([day, warehouseId, saleChannelId])
+  @@map("orders_daily_agg")
+}
+
+// Commission daily aggregates — refreshed by AnalyticsCronService.refreshDailyAnalytics
+// (bước thứ 3 cạnh payments/orders). Nguồn: affiliate_commissions groupBy (level, status)
+// theo ngày createdAt. Bảng phục vụ trang "Phân tích doanh nghiệp" (admin/analytics).
+model CommissionsDailyAgg {
+  id     String   @id @default(cuid())
+  day    DateTime @db.Date
+  level  String // CommissionLevel dưới dạng chuỗi (F0..F7)
+  status String // CommissionStatus dưới dạng chuỗi (pending|calculated|paid|cancelled|settled)
+  count  Int      @default(0)
+  amount Decimal  @default(0) @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([day, level, status])
+  @@map("commissions_daily_agg")
+}
+
+// ==================== ALERT ENGINE ====================
+// Cảnh báo vận hành phát hiện bởi AlertDetectionService (@Cron 15 phút, 8 rule).
+// Dedupe: một alert mỗi (ruleKey, scopeId) mỗi ngày VN khi chưa resolved.
+
+enum AlertSeverity {
+  info
+  warning
+  critical
+}
+
+enum AlertStatus {
+  open
+  acknowledged
+  resolved
+}
+
+model AlertEvent {
+  id String @id @default(cuid())
+
+  ruleKey  String // vd: revenue_drop_weekday, low_stock_a, sla_confirm...
+  severity AlertSeverity
+  metric   String // tên chỉ số bị lệch (vd: doanh_thu_ngay, days_left)
+
+  currentValue  Decimal @db.Decimal(15, 2)
+  baselineValue Decimal @db.Decimal(15, 2)
+  deltaPct      Float
+
+  scopeType  String? // warehouse | saleChannel | product | null (toàn hệ thống)
+  scopeId    String?
+  scopeLabel String?
+
+  status     AlertStatus @default(open)
+  assigneeId String?
+  note       String?
+  suggestion String? // gợi ý xử lý tiếng Việt có dấu
+
+  detectedAt DateTime
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, detectedAt])
+  @@index([ruleKey, scopeId, detectedAt])
+  @@map("alert_events")
+}
+
+// Analytics refresh tracking
+model AnalyticsRefreshLog {
+  id            String    @id @default(cuid())
+  tableName     String // 'payments', 'orders', 'refunds'
+  day           DateTime // The day being refreshed
+  status        String // 'started', 'completed', 'failed'
+  rowsProcessed Int       @default(0)
+  rowsUpserted  Int       @default(0)
+  durationMs    Int       @default(0) // Processing time in milliseconds
+  error         String? // Error message if failed
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  @@index([tableName, day])
+  @@index([startedAt])
+  @@map("analytics_refresh_log")
+}

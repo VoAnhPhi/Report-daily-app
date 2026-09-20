@@ -1,0 +1,87 @@
+model ErrorLog {
+  id           String    @id @default(cuid())
+  route        String
+  userId       String?
+  action       String? // 'query' or 'mutation'
+  errorCode    String
+  errorMessage String
+  inputSummary String?   @db.Text
+  stackTrace   String?   @db.Text
+  environment  String
+  severity     String?   @default("ERROR") // CRITICAL, ERROR, WARN, INFO
+  isResolved   Boolean   @default(false)
+  resolvedAt   DateTime?
+  timestamp    DateTime
+  ipAddress    String?
+  userAgent    String?
+  sessionId    String?
+
+  // Production observability fields
+  category      String? // Error classification: "STORY", "ORDER", "AUTH", "UPLOAD", "PAYMENT", etc.
+  module        String? // Service/domain: "stories", "orders", "warehouses", etc.
+  correlationId String? // Request-scoped correlation ID for distributed tracing
+  retryable     Boolean @default(false) // Whether the operation can be safely retried
+  handled       Boolean @default(true) // false = unhandled/unexpected exception
+  fingerprint   String? // Dedup-friendly hash: hash(errorCode + route + module) for grouping
+  causedBy      String? @db.Text // Root cause chain: inner exception messages
+  rawMetadata   Json? // Arbitrary structured context (storyId, mediaId, processingState, etc.)
+
+  createdAt DateTime @default(now())
+
+  // Relationships (nullable - preserve log if user/session deleted)
+  user    User?    @relation("userErrorLogs", fields: [userId], references: [id], onDelete: SetNull)
+  session Session? @relation("sessionErrorLogs", fields: [sessionId], references: [id], onDelete: SetNull)
+
+  relations ErrorLogRelation[]
+  tags      ErrorLogTag[]
+
+  // Indexes: route for endpoint-level queries, fingerprint for dedup grouping,
+  // category+severity for operational dashboards, correlationId for request tracing
+  @@index([userId])
+  @@index([sessionId])
+  @@index([route])
+  @@index([severity])
+  @@index([isResolved])
+  @@index([createdAt])
+  @@index([environment, severity, createdAt])
+  @@index([category, severity, createdAt])
+  @@index([module, createdAt])
+  @@index([correlationId])
+  @@index([fingerprint, createdAt])
+  @@index([handled, createdAt])
+  @@map("error_log")
+}
+
+model ErrorLogTag {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  color       String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  errorLogs         ErrorLog[]
+  errorLogRelations ErrorLogRelation[]
+
+  @@map("error_log_tag")
+}
+
+model ErrorLogRelation {
+  id           String   @id @default(cuid())
+  errorLogId   String
+  relatedId    String
+  relatedType  String
+  relationType String
+  metadata     String?  @db.Text
+  tagId        String?
+  createdAt    DateTime @default(now())
+
+  errorLog ErrorLog     @relation(fields: [errorLogId], references: [id], onDelete: Cascade)
+  tag      ErrorLogTag? @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  @@unique([errorLogId, relatedId, relatedType, relationType])
+  @@index([errorLogId])
+  @@index([relatedId, relatedType])
+  @@index([relationType])
+  @@index([tagId])
+  @@map("error_log_relation")
+}

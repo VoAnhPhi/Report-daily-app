@@ -1,0 +1,590 @@
+{
+  "nav": {
+    "home": "Trang chủ",
+    "about": "Về chúng tôi",
+    "services": "Dịch vụ",
+    "news": "Tin tức",
+    "contact": "Liên hệ",
+    "login": "Đăng nhập",
+    "register": "Đăng ký"
+  },
+  "buttons": {
+    "discount": "Chiết Khấu",
+    "meetings": "Cuộc Họp",
+    "partners": "Đối Tác",
+    "manage": "Quản lý",
+    "wallet": "Ví giấy tờ",
+    "shop": "Mua Hàng"
+  },
+  "ui": {
+    "language": "Ngôn ngữ",
+    "theme": "Chủ đề",
+    "apps": "Ứng dụng",
+    "theme_label": "Giao diện",
+    "festive_themes": "Chủ đề mùa lễ",
+    "display_options": "Tùy chọn hiển thị",
+    "landscape_bg": "Ảnh nền phong cảnh",
+    "video_training": "Video rèn luyện",
+    "effects_hint": "Tắt hiệu ứng nếu máy bị giật",
+    "screen_effects": "Hiệu ứng rơi trên màn hình",
+    "screen_effects_hint": "Hiệu ứng lá rơi / tuyết"
+  },
+  "contact": {
+    "phone": "0912 880 330",
+    "email": "lienhe@acta.vn",
+    "address": "94/21 Võ Oanh, Phường Thạnh Mỹ Tây, TP Hồ Chí Minh, Việt Nam"
+  },
+  "section": {
+    "news": {
+      "title": "Tin Tức & Sự Kiện Nổi Bật",
+      "subtitle": "Cập nhật những tin tức mới nhất về ngành kế toán, sự kiện đào tạo và hoạt động của ACTA",
+      "daily_updates": "Cập nhật hàng ngày",
+      "followers": "5,000+ thành viên theo dõi",
+      "industry_wide": "Tin tức toàn ngành",
+      "latest_badge": "Cập nhật mới nhất"
+    }
+  },
+  "label": {
+    "event": "Sự kiện",
+    "announcement": "Tuyển dụng",
+    "education": "Đào tạo",
+    "partnership": "Đối tác",
+    "achievement": "Thành tích"
+  },
+  "news": {
+    "featured": "Nổi bật",
+    "workshop": {
+      "title": "Workshop Affiliate Marketing: Chiến lược thành công 2024",
+      "desc": "Sự kiện đào tạo Affiliate Marketing lớn nhất năm với sự tham gia của các chuyên gia hàng đầu"
+    },
+    "conference": {
+      "title": "Hội nghị thường niên ACTA 2024",
+      "desc": "Tổng kết hoạt động năm 2023 và định hướng phát triển năm 2024"
+    },
+    "training": {
+      "title": "Khóa học Affiliate Marketing từ A-Z",
+      "desc": "Chương trình đào tạo toàn diện dành cho người mới bắt đầu"
+    },
+    "partnership": {
+      "title": "Đối tác chiến lược mới",
+      "desc": "Mở rộng mạng lưới đối tác toàn cầu"
+    },
+    "award": {
+      "title": "Giải thưởng xuất sắc",
+      "desc": "Vinh danh những thành viên xuất sắc"
+    },
+    "latest": "Tin tức mới nhất",
+    "view_all": "Xem tất cả tin tức",
+    "category": {
+      "policy": "Chính sách & Quy định",
+      "product": "Sản phẩm & Dịch vụ",
+      "achievement": "Thành tích & Giải thưởng",
+      "event": "Sự kiện & Hội thảo"
+    },
+    "commission": {
+      "title": "Cập nhật chính sách chiết khấu và ưu đãi Q1/2024"
+    },
+    "platform": {
+      "title": "Ra mắt nền tảng quản lý Affiliate ACTA Pro 2.0"
+    },
+    "top10": {
+      "title": "Vinh danh Top 10 Affiliate xuất sắc tháng 12/2023"
+    },
+    "event": {
+      "title": "Chuỗi sự kiện đào tạo Affiliate Marketing Q1/2024"
+    },
+    "time": {
+      "1hour": "1 giờ trước",
+      "2hours": "2 giờ trước",
+      "1day": "1 ngày trước",
+      "2days": "2 ngày trước"
+    }
+  },
+  "hero": {
+    "title": "ACTA.VN",
+    "subtitle": "ACTA.VN",
+    "slogan": "Kết nối đỉnh cao, lợi nhuận bền vững"
+  },
+  "footer": {
+    "quicklinks": "Liên kết nhanh",
+    "follow": "Theo dõi chúng tôi",
+    "copyright": "© 2026 ACTA. Tất cả quyền được bảo lưu.",
+    "viewmap": "Xem bản đồ chi tiết",
+    "phone_label": "Số điện thoại:",
+    "email_label": "Email:",
+    "policies": {
+      "inspection": "Chính Sách Kiểm Hàng",
+      "shipping": "Chính Sách Vận Chuyển",
+      "return_cancellation": "Chính Sách Đổi Trả Huỷ Đơn",
+      "invoice_revenue": "Chính Sách Hoá Đơn Doanh Số",
+      "complaints": "Quy Trình Tiếp Nhận Và Giải Quyết Khiếu Nại",
+      "contact": "Thông Tin Liên Hệ",
+      "faq": "Câu Hỏi Thường Gặp"
+    }
+  },
+  "community": {
+    "moments": {
+      "title": "Khoảnh khắc cộng đồng",
+      "subtitle": "Nơi kết nối và chia sẻ kiến thức chuyên môn"
+    },
+    "trending": {
+      "title": "Xu hướng",
+      "tag": {
+        "digitalLaw": "LuậtCôngNghệSố",
+        "acta": "ACTA",
+        "ecommerce": "ThuongMaiDienTu",
+        "vietnam": "VietNam",
+        "affiliate": "Affiliate"
+      }
+    },
+    "search": {
+      "quick": "Tìm kiếm nhanh..."
+    },
+    "feed": {
+      "tabs": {
+        "all": "Tất cả",
+        "following": "Đang theo dõi",
+        "popular": "Phổ biến",
+        "new_posts": "Bài Viết Mới",
+        "active_posts": "Bài viết sôi nổi",
+        "pro_posts": "Bài Viết Đáng Xem"
+      },
+      "sort": {
+        "latest": "Mới nhất",
+        "popular": "Phổ biến",
+        "trending": "Thịnh hành",
+        "most_reacted": "Nhiều tương tác",
+        "most_commented": "Nhiều bình luận",
+        "only_pending": "Chỉ bài chờ duyệt"
+      },
+      "filter": {
+        "all": "Tất cả bài viết",
+        "verified": "Đã xác thực",
+        "media": "Có media",
+        "my_posts": "Bài viết của tôi",
+        "search_placeholder": "Tìm trong bài viết...",
+        "clear_search": "Xóa tìm kiếm",
+        "filter_button": "Bộ lọc",
+        "pending_approval": "Chờ duyệt",
+        "pending_approval_full": "Bài viết chờ duyệt",
+        "member_badge": "Thành viên: {id}",
+        "posts_count": "{count} bài viết",
+        "reset": "Đặt lại"
+      },
+      "empty": {
+        "title": "Chưa có bài viết nào",
+        "subtitle": "Hãy tạo bài viết đầu tiên để chia sẻ với cộng đồng!",
+        "pro_title": "Chưa có bài viết đáng xem mới",
+        "pro_subtitle": "Các bài viết chất lượng cao được tuyển chọn sẽ xuất hiện tại đây.",
+        "active_title": "Chưa có bài viết sôi nổi mới",
+        "active_subtitle": "Các bài viết nhận được nhiều tương tác nhất trong cộng đồng.",
+        "view_all_new": "Xem tất cả bài viết mới"
+      },
+      "all_caught_up": "🎉 Bạn đã xem hết tất cả bài viết!",
+      "active_banner": {
+        "title": "Bài viết sôi nổi trong cộng đồng",
+        "subtitle": "Tổng hợp các bài thảo luận nhận nhiều tương tác nhất",
+        "period_24h": "24 giờ",
+        "period_7d": "7 ngày",
+        "period_30d": "30 ngày"
+      },
+      "pro_banner": {
+        "title": "Bài viết đáng xem được tuyển chọn",
+        "subtitle": "Nội dung chia sẻ chuyên sâu và có giá trị cao từ các thành viên"
+      },
+      "load_more": "Tải thêm bài viết",
+      "end_of_feed": "✦ Bạn đã xem hết bài viết hôm nay ✦",
+      "all_caught_up_pro": "🎉 Bạn đã xem hết các bài viết đáng xem hôm nay!",
+      "all_caught_up_active": "🎉 Bạn đã xem hết các bài viết sôi nổi nhất!",
+      "all_caught_up_sub_filtered": "Hãy chuyển sang tab khác hoặc đăng bài mới để kết nối cùng cộng đồng.",
+      "all_caught_up_sub_default": "Hãy quay lại sau để cập nhật thêm các khoảnh khắc và thảo luận mới."
+    },
+    "composer": {
+      "placeholder": "bạn đang nghĩ gì thế?",
+      "live_video": "Video trực tiếp",
+      "photo_video": "Ảnh/video",
+      "feeling": "Cảm xúc",
+      "placeholder_user": "{name} ơi, bạn đang nghĩ gì thế?",
+      "cooldown_toast": "Bạn có thể đăng bài mới sau {time} nữa.",
+      "cooldown_toast_desc": "Mỗi người chỉ được đăng một bài sau mỗi {minutes} phút.",
+      "cooldown_label": "Có thể đăng bài mới sau",
+      "cooldown_inline_desc": "Mỗi người chỉ được đăng một bài sau mỗi {minutes} phút.",
+      "submitted_pending": "Bài viết đã được gửi và đang chờ duyệt từ cộng đồng!",
+      "created_success": "Bài viết của bạn đã được tạo thành công!"
+    },
+    "latest_moments": "Khoảnh khắc mới nhất",
+    "no_moments": "Chưa có khoảnh khắc nào",
+    "new_members": "Thành viên mới",
+    "no_new_members": "Chưa có thành viên mới",
+    "navigation": {
+      "aria_label": "Điều hướng cộng đồng",
+      "create_post": "Tạo bài viết",
+      "sections": {
+        "feed": "Bảng tin",
+        "discover": "Khám phá",
+        "resources": "Tài nguyên",
+        "apps": "Ứng dụng"
+      },
+      "items": {
+        "for_you": "Dành cho bạn",
+        "my_posts": "Bài viết của tôi",
+        "saved": "Đã lưu",
+        "events_news": "Sự kiện & Tin tức",
+        "offers": "Tin ưu đãi",
+        "training_videos": "Video rèn luyện",
+        "qa_forum": "Diễn đàn hỏi đáp",
+        "documents": "Tàng kinh các (Tài liệu)",
+        "management": "Quản lý",
+        "redirecting": "Đang chuyển hướng...",
+        "discount": "Chiết khấu",
+        "meetings": "Cuộc họp",
+        "partners": "Đối tác"
+      },
+      "saved_toast_title": "Tính năng lọc bài viết đã lưu đang được kích hoạt",
+      "saved_toast_desc": "Danh sách bài viết đã lưu sẽ sớm hoàn thiện."
+    },
+    "shareholders": {
+      "title": "Cổ Đông Cộng Đồng",
+      "connecting_members": "thành viên đang kết nối",
+      "featured_members": "Thành viên kết nối nổi bật",
+      "view_all": "Xem tất cả",
+      "scroll_left": "Cuộn sang trái",
+      "scroll_right": "Cuộn sang phải"
+    },
+    "post": {
+      "feature_developing": "Tính năng đang phát triển",
+      "copy_link_success": "Đã sao chép liên kết bài viết!",
+      "delete_success": "Bài viết đã được xóa thành công!",
+      "delete_error": "Không thể xóa bài viết",
+      "hide_success": "Bài viết đã được ẩn khỏi feed công khai"
+    },
+    "spotlight": {
+      "aria_label": "Chế độ khám phá",
+      "featured": "Nổi bật",
+      "new": "Mới tham gia",
+      "nearby": "Gần bạn",
+      "industry": "Cùng lĩnh vực"
+    },
+    "pulse": {
+      "aria_label": "Nhịp đập cộng đồng",
+      "featured_posts": "bài nổi bật",
+      "today": "hôm nay",
+      "new_members": "thành viên",
+      "just_joined": "mới gia nhập",
+      "live_sessions": "phiên live",
+      "upcoming": "sắp diễn ra"
+    }
+  },
+  "eventsNews": {
+    "title": "Sự kiện và Tin tức",
+    "subtitle": "Cập nhật mới nhất về các chương trình và nội dung khuyến nghị",
+    "announcement": {
+      "subtitle": "Cập nhật những thông báo tuyển dụng từ cộng đồng ACTA"
+    },
+    "search": {
+      "placeholder": "Tìm kiếm..."
+    },
+    "filter": {
+      "all": "Tất cả",
+      "news": "Tin tức",
+      "event": "Sự kiện"
+    },
+    "sort": {
+      "latest": "Mới nhất",
+      "oldest": "Cũ nhất",
+      "mostLikes": "Thích nhiều nhất",
+      "leastLikes": "Thích ít nhất",
+      "mostComments": "Bình luận nhiều nhất",
+      "leastComments": "Bình luận ít nhất",
+      "mostViews": "Xem nhiều nhất",
+      "leastViews": "Xem ít nhất",
+      "az": "Tên A-Z",
+      "za": "Tên Z-A",
+      "updatedLatest": "Cập nhật mới nhất",
+      "updatedOldest": "Cập nhật cũ nhất"
+    },
+    "items": "'{{count}}' mục"
+  },
+  "documents": {
+    "title": "Tàng kinh các",
+    "subtitle": "Cập nhật các văn bản, tài liệu, thông tin dành cho cộng đồng.",
+    "search": {
+      "placeholder": "Tìm kiếm tài liệu, tác giả, danh mục..."
+    },
+    "category": {
+      "placeholder": "Chọn danh mục",
+      "all": "Tất cả danh mục"
+    },
+    "sort": {
+      "label": "Sắp xếp theo",
+      "newest": "Mới nhất",
+      "oldest": "Cũ nhất",
+      "mostViewed": "Xem nhiều nhất",
+      "mostDownloaded": "Tải nhiều nhất"
+    },
+    "filters": {
+      "applied": "Bộ lọc đang áp dụng:",
+      "search": "Tìm kiếm",
+      "category": "Danh mục",
+      "clearAll": "Xóa tất cả"
+    },
+    "tabs": {
+      "all": "Tất cả",
+      "downloads": "Tải nhiều",
+      "latest": "Mới nhất",
+      "views": "Xem nhiều",
+      "favorites": "Đã lưu"
+    },
+    "loading": "Đang tải tài liệu...",
+    "results": {
+      "summary": "Hiển thị '{{shown}}' trong tổng số '{{total}}' tài liệu"
+    },
+    "no_files": "Không có tệp tin nào để tải xuống",
+    "download": {
+      "success": "Tải xuống thành công!",
+      "error": "Có lỗi xảy ra khi tải xuống. Vui lòng thử lại.",
+      "button": "Tải xuống"
+    },
+    "downloading": "Đang tải...",
+    "view_detail": "Xem chi tiết",
+    "badge": {
+      "recentlyViewed": "Đã xem gần đây",
+      "following": "Đang theo dõi",
+      "favorite": "Yêu thích"
+    },
+    "progress": "Tiến độ",
+    "chapters": "chương"
+  },
+  "stats": {
+    "highlighted": "Thành tích nổi bật",
+    "search": {
+      "placeholder": "Tìm kiếm tên hoặc mã giới thiệu..."
+    },
+    "no_results": "Không tìm thấy kết quả",
+    "no_data": "Chưa có dữ liệu"
+  },
+  "features": {
+    "event_news": {
+      "title": "Sự kiện & Tin tức",
+      "desc": "Cập nhật mới nhất"
+    },
+    "documents": {
+      "title": "Tàng kinh các",
+      "desc": "Tài liệu chuyên môn"
+    },
+    "announcement": {
+      "title": "Tuyển dụng",
+      "desc": "Thông tin tuyển dụng"
+    },
+    "community": {
+      "title": "Khoảnh khắc cộng đồng",
+      "desc": "Kết nối và chia sẻ"
+    },
+    "forum": {
+      "title": "Diễn đàn hỏi đáp",
+      "desc": "Thảo luận và chia sẻ kiến thức"
+    }
+  },
+  "avatar": {
+    "view_profile": "Xem hồ sơ",
+    "logout": "Đăng xuất",
+    "manage": "Quản lý",
+    "navigating": "Đang chuyển...",
+    "role": {
+      "admin": "Quản trị viên",
+      "user": "Người dùng",
+      "collaborator": "Cộng tác viên"
+    },
+    "kyc": {
+      "complete": "Hoàn thành KYC",
+      "need_revision": "KYC cần sửa đổi",
+      "need_change": "KYC cần thay đổi",
+      "processing": "KYC đang xử lý",
+      "verify_needed": "Cần xác minh"
+    }
+  },
+  "actions": {
+    "load_more": "Tải thêm bài viết"
+  },
+  "loading": {
+    "posts": "Đang tải bài viết...",
+    "more_posts": "Đang tải thêm bài viết..."
+  },
+  "ecosystem": {
+    "banner": {
+      "badge": "Hệ sinh thái ACTA",
+      "title": "Khám phá các điểm cầu liên kết hệ sinh thái ACTA",
+      "description": "Tìm nhà hàng, quán cà phê, trung tâm mua sắm và các điểm cầu kết nối gần bạn cùng những ưu đãi dành riêng cho thành viên ACTA.",
+      "primary_cta": "Xem điểm cầu ngay",
+      "secondary": {
+        "map": "Bản đồ điểm cầu",
+        "offers": "Ưu đãi hệ sinh thái",
+        "nearby": "Gần bạn"
+      }
+    }
+  },
+  "training": {
+    "card": {
+      "title": "Video rèn luyện",
+      "watch_video": "Xem video",
+      "loading": "Đang tải thù lao rèn luyện hôm nay…",
+      "daily_reward": "Thù lao hôm nay",
+      "daily_completions": "Lượt hôm nay",
+      "capped_today": "Đã chạm trần hôm nay",
+      "remaining_money": "Còn {amount} nữa là chạm trần hôm nay",
+      "remaining_completions": "Còn {count} lượt nữa là chạm trần hôm nay",
+      "earned_today": "Hôm nay bạn đã nhận {amount} thù lao rèn luyện",
+      "care_paused": "Tạm dừng nhận thưởng khi hoàn thành video",
+      "care_reason": "Lý do"
+    },
+    "playbackState": {
+      "playing": "Đang phát",
+      "paused": "Đã tạm dừng",
+      "ended": "Đã kết thúc, xem lại"
+    }
+  },
+  "notifications": {
+    "title": "Thông báo",
+    "unread_count": "{count} chưa đọc",
+    "total_count": "{count} thông báo",
+    "mark_all_read": "Đánh dấu tất cả đã đọc",
+    "mark_all_seen": "Đánh dấu đã xem",
+    "mark_read": "Đánh dấu đã đọc",
+    "unread": "Chưa đọc",
+    "loading": "Đang tải...",
+    "load_more": "Tải thêm thông báo",
+    "all_loaded": "Đã tải tất cả thông báo",
+    "processing": "Đang xử lý...",
+    "error_loading": "Không thể tải thông báo",
+    "retry": "Thử lại",
+    "filter": {
+      "all": "Tất cả {count}"
+    },
+    "domains": {
+      "social": "Mạng xã hội",
+      "shop": "Mua sắm",
+      "income": "Thu nhập",
+      "admin": "Quản trị",
+      "system": "Hệ thống"
+    },
+    "empty": {
+      "title": "Không có thông báo",
+      "subtitle": "Bạn sẽ nhận được thông báo ở đây",
+      "filtered_title": "Không có thông báo trong nhóm này",
+      "filtered_subtitle": "Chọn “Tất cả” để xem mọi thông báo"
+    },
+    "sheet": {
+      "empty_title": "Không có thông báo",
+      "empty_subtitle": "Bạn sẽ nhận được thông báo ở đây",
+      "view_all": "Xem tất cả thông báo"
+    }
+  },
+  "leaderboard": {
+    "title": "Bảng xếp hạng",
+    "subtitle": "Theo tổng điểm tích lũy",
+    "updatedAt": "Cập nhật lúc {time}",
+    "totalPoints": "Tổng điểm",
+    "searchPlaceholder": "Tìm theo tên hoặc mã...",
+    "rank": "HẠNG {rank}",
+    "yourAchievement": "Thành tích của bạn",
+    "unranked": "Chưa xếp hạng",
+    "viewFull": "Xem bảng xếp hạng đầy đủ ({count})",
+    "error": "Không tải được bảng xếp hạng. Vui lòng thử lại sau.",
+    "noResults": "Không tìm thấy kết quả phù hợp",
+    "noData": "Chưa có dữ liệu xếp hạng",
+    "tabs": {
+      "totalPoints": "Tổng điểm",
+      "recognizedPosts": "Hoạt động",
+      "revenuePreTax": "Doanh số",
+      "directReferrals": "Kết nối",
+      "likeCount": "Yêu thích"
+    },
+    "units": {
+      "points": "điểm",
+      "posts": "bài",
+      "vnd": "VND",
+      "people": "người",
+      "times": "lượt"
+    },
+    "motivation": {
+      "youAreFirst": "🏆 Bạn đang dẫn đầu bảng xếp hạng! Hãy tiếp tục duy trì phong độ.",
+      "unranked": "Hãy tích cực hoạt động để ghi danh trên bảng xếp hạng!",
+      "pointsToNext": "Còn {diff} {unit} để lên hạng #{targetRank}"
+    },
+    "descriptions": {
+      "totalPoints": "Theo tổng điểm tích lũy",
+      "recognizedPosts": "Theo số bài viết được ghi nhận",
+      "revenuePreTax": "Theo tổng tiêu dùng (đã trừ VAT)",
+      "directReferrals": "Theo số người giới thiệu đã KYC",
+      "likeCount": "Theo tổng lượt thích đã gửi"
+    },
+    "collapse": "Thu gọn bảng xếp hạng",
+    "you": "Bạn",
+    "progress": {
+      "keepGoing": "Tiếp tục tích lũy {unit} để nâng cao thứ hạng #{targetRank}"
+    }
+  },
+  "rewards": {
+    "title": "Hệ thống thưởng",
+    "level": "Cấp độ",
+    "totalPoints": "Tổng điểm",
+    "nextLevelProgress": "Tiến độ cấp tiếp theo",
+    "loading": "Đang tải...",
+    "viewAchievements": "Xem thành tích",
+    "initializeSystem": "Khởi tạo hệ thống thưởng",
+    "initializing": "Đang khởi tạo...",
+    "retry": "Thử lại",
+    "error": "Không thể kết nối đến hệ thống thưởng",
+    "tryAgain": "Thử lại",
+    "globalRank": "Hạng #{rank} toàn cầu",
+    "retryArrow": "Thử lại →",
+    "viewAchievementsArrow": "Xem thành tích →"
+  },
+  "birthdays": {
+    "title": "Sinh nhật cộng đồng",
+    "tabs": {
+      "today": "Hôm nay",
+      "upcoming": "7 ngày tới"
+    },
+    "empty": {
+      "today": "Hôm nay không có ai mừng sinh nhật.",
+      "upcoming": "Không có ai sắp đến sinh nhật trong {days} ngày tới."
+    },
+    "viewAll": "Xem tất cả {count} người",
+    "collapse": "Thu gọn danh sách",
+    "viewProfile": "Xem trang cá nhân của {name}",
+    "simulatedTime": "Đang giả lập thời gian: {time}",
+    "birthdaysToday": "{count} sinh nhật hôm nay",
+    "birthdaysUpcoming": "{count} sinh nhật trong 7 ngày tới",
+    "pagination": "Trang {current}/{total} · {totalCount} thành viên",
+    "runTest": "Chạy thử",
+    "viewAllShort": "Xem tất cả ({count})",
+    "daysUntil": {
+      "today": "Hôm nay",
+      "tomorrow": "Ngày mai",
+      "inDays": "Còn {days} ngày"
+    }
+  },
+  "feed": {
+    "tabs": {
+      "latest": "Bài viết mới",
+      "trending": "Bài viết sôi nổi",
+      "recommended": "Bài viết đáng xem",
+      "livestream": "Phát trực tiếp"
+    }
+  },
+  "live": {
+    "comingSoon": {
+      "badge": "Sắp ra mắt",
+      "title": "Phát trực tiếp sắp ra mắt",
+      "description": "Tính năng này đang được ACTA hoàn thiện và sẽ sớm được cập nhật."
+    },
+    "loading": "Đang tải livestream...",
+    "liveNow": "Đang phát trực tiếp",
+    "noLiveStreams": "Hiện không có phiên phát trực tiếp nào đang diễn ra",
+    "recentReplays": "Bản phát lại gần đây",
+    "noReplays": "Chưa có bản ghi phát lại nào được lưu",
+    "endOfCatalog": "Bạn đã xem hết danh mục phát trực tiếp",
+    "endOfCatalogDescription": "Hãy theo dõi các phiên phát sóng tiếp theo hoặc quay lại bảng tin để cập nhật khoảnh khắc mới nhất từ cộng đồng."
+  }
+}

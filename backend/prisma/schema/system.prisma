@@ -1,0 +1,117 @@
+model SystemConfig {
+  id String @id @default(uuid())
+
+  kiotvietConfigId String?
+  kiotvietConfig   KiotVietConfig?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_configs")
+}
+
+model KiotVietConfig {
+  id String @id @default(uuid())
+
+  apiKey   String  @unique
+  isActive Boolean @default(false)
+
+  fieldMappings Json?
+  syncSettings  Json?
+
+  systemConfigId String       @unique
+  systemConfig   SystemConfig @relation(fields: [systemConfigId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("kiotviet_configs")
+}
+
+enum SyncDirection {
+  KIOTVIET_TO_ACTA
+  ACTA_TO_KIOTVIET
+}
+
+enum SyncEntityType {
+  PRODUCT
+  CATEGORY
+  WAREHOUSE
+  BUSINESS
+  USER
+}
+
+enum SyncStatus {
+  SUCCESS
+  FAILED
+  PARTIAL
+  PENDING
+}
+
+model SyncLog {
+  id String @id @default(uuid())
+
+  direction SyncDirection
+  status    SyncStatus
+
+  entityType SyncEntityType
+  entityId   String? // May be null if failed
+
+  details Json? // total records, success count, failed count, error details
+
+  startTime DateTime
+  endTime   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sync_logs")
+}
+
+model ApiKeyOtp {
+  token      String   @id @db.Char(6) // 6-digit OTP
+  userId     String   @unique
+  validUntil DateTime @db.Timestamp(6)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("api_key_otps")
+}
+
+model CronJobLock {
+  id String @id @default(uuid())
+
+  jobName   String    @unique // Unique name for the cron job (e.g., 'birthday-notification')
+  lockedBy  String? // Instance identifier (hostname, pod name, etc.)
+  lockedAt  DateTime?
+  expiresAt DateTime? // Lock expiration time (auto-unlock after a certain time)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cron_job_locks")
+}
+
+/// P97 (D-97-1 / RT-04 / WORKER-03) — durable cross-process handoff for the 5
+/// in-memory `setInterval` loops. Web enqueues a `pending` row; the worker polls,
+/// atomically claims a batch (FOR UPDATE SKIP LOCKED) and drains it — no
+/// web-enqueued job stranded, no row double-claimed across worker replicas.
+/// Sibling of CronJobLock: the same DB-backed coordination the team already trusts
+/// (Postgres, not Redis). `status` is a String (NOT a Prisma enum) so the §38
+/// migration needs no guarded `CREATE TYPE` block. `payload` carries
+/// businessId/tenant for money-path jobTypes (P98 CLS reconstruction depends on it).
+model BackgroundJob {
+  id String @id @default(uuid())
+
+  jobType   String // discriminator: 'affiliate-order-completed' | 'notification' | 'activity-log' | 'point-award' | 'cron-job'
+  payload   Json // durable job payload; MUST carry businessId/tenant for money-path jobTypes
+  status    String    @default("pending") // pending | claimed | done | failed
+  claimedBy String? // claiming worker instance id: `${HOSTNAME}-${pid}`
+  claimedAt DateTime?
+  attempts  Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, jobType, createdAt]) // the poll/claim index (one index, per D-97-1)
+  @@map("background_jobs")
+}

@@ -1,0 +1,72 @@
+// ==================== SỔ GHI NHẬN MỤC ĐÍCH TỒN KHO CTV ====================
+// Purpose-locked stock at a kho CTV (`Warehouse.isCollaboratorWarehouse = true`).
+//
+// A virtual combo (`Product.type = combo`, `comboMode = virtual`) holds NO
+// `ProductInventory` row of its own — a combo transfer moves its RECIPE
+// COMPONENTS (see `combo-yield.helper.ts` and `COMBO_TRANSFER_ERRORS`). At a kho
+// CTV that made component stock indistinguishable from stock transferred in as
+// individual products, so the CTV could split a combo apart and sell its parts,
+// or assemble loose units into a combo. This ledger records the PURPOSE each
+// unit arrived with:
+//
+//   freeUnits(w, p)  = max(0, sellableNow(w, p) − Σ_combo quantity(w, *, p))
+//   comboUnits(w, C) = min over comps of min(
+//                        floor(quantity(w, C, comp) / requiredPerCombo),
+//                        floor(sellableNow(w, comp) / requiredPerCombo))
+//
+// The second `min` term is REQUIRED: it prevents oversell in the window where a
+// stocktake dropped `onHand` below the earmarked total but the earmark has not
+// been shrunk yet.
+//
+// It is a QUANTITY ledger, NOT an exclusive lock — one (warehouse, component)
+// SKU may simultaneously hold free/lẻ units and units earmarked for several
+// different combos, and a transfer is never rejected for "mixing purposes".
+//
+// Rows are written on EVERY combo transfer touching a kho CTV, regardless of the
+// `CTV_COMBO_SPLIT_ALLOWED` feature toggle — only the READ gates branch on it,
+// so flipping the toggle back and forth stays correct.
+//
+// ⚠ `onDelete: Cascade` on both Product legs means deleting a combo drops its
+// earmark rows, which instantly converts that earmarked stock back into free/lẻ
+// stock with no dedicated log entry. Intentional, but operator-visible.
+
+model ProductComboEarmark {
+  id String @id @default(cuid())
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  /// The virtual combo these units belong to.
+  comboProductId String
+  comboProduct   Product @relation("ComboEarmarkCombo", fields: [comboProductId], references: [id], onDelete: Cascade)
+
+  /// The REAL stock-holding component SKU whose units are earmarked.
+  componentProductId String
+  componentProduct   Product @relation("ComboEarmarkComponent", fields: [componentProductId], references: [id], onDelete: Cascade)
+
+  /// Units reserved. NEVER negative — a raw `CHECK ("quantity" >= 0)` in the
+  /// migration is the final backstop behind the CAS decrement.
+  quantity Int @default(0)
+
+  /// Snapshot of `requiredPerCombo` at transfer time — DIAGNOSTICS ONLY.
+  /// Reads always re-derive `requiredPerCombo` from the LIVE recipe via
+  /// `aggregateRecipe()`, so an edited `ProductFormula` cannot silently change
+  /// availability against a stale snapshot.
+  requiredPerComboAtTransfer Int @default(1)
+
+  /// Optimistic lock — same discipline as `ProductInventory.version` (INV-01).
+  version Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Explicit `map:` names are MANDATORY here: the Prisma-default constraint name
+  // for the composite unique is 72 chars and Postgres truncates identifiers at
+  // 63, which silently desyncs the migration from `prisma db pull`.
+  @@unique([warehouseId, comboProductId, componentProductId], map: "product_combo_earmarks_wh_combo_comp_key")
+  @@index([warehouseId, componentProductId], map: "product_combo_earmarks_wh_comp_idx")
+  @@index([warehouseId, comboProductId], map: "product_combo_earmarks_wh_combo_idx")
+  @@index([comboProductId], map: "product_combo_earmarks_comboProductId_idx")
+  @@index([componentProductId], map: "product_combo_earmarks_componentProductId_idx")
+  @@map("product_combo_earmarks")
+}

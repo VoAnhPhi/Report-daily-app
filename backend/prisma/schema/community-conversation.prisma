@@ -1,0 +1,86 @@
+// ============================================================================
+// COMMUNITY CONVERSATION SYSTEM - Multiverse Phase 1
+// Lightweight workspace/team/mission chat threads.
+//
+// Note: Named with `Community` prefix to disambiguate from the existing
+// Messenger-style `Conversation`/`Message`/`ConversationMember` models in
+// messages.prisma (which carry full call/reply/reaction infrastructure).
+// Plan A.3.2 specified `Conversation`/`Message`/`ConversationParticipant`
+// names; renamed here to avoid duplicate-model schema errors.
+// ============================================================================
+
+enum ConversationKind {
+  direct
+  team
+  mission
+}
+
+model CommunityConversation {
+  id String @id @default(uuid())
+
+  kind ConversationKind @default(direct)
+
+  // Optional scoping refs
+  missionId String?
+  mission   Mission? @relation("CommunityConversationMission", fields: [missionId], references: [id], onDelete: SetNull)
+
+  teamId String?
+  team   Team?   @relation("CommunityConversationTeam", fields: [teamId], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime  @default(now())
+  lastMessageAt DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  messages     CommunityMessage[]                 @relation("CommunityConversationMessages")
+  participants CommunityConversationParticipant[] @relation("CommunityConversationParticipants")
+
+  @@index([kind, lastMessageAt(sort: Desc)])
+  @@index([missionId])
+  @@index([teamId])
+  @@map("community_conversations")
+}
+
+model CommunityMessage {
+  id String @id @default(uuid())
+
+  conversationId String
+  conversation   CommunityConversation @relation("CommunityConversationMessages", fields: [conversationId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("CommunityMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  body        String
+  attachments String[] @default([]) // media URLs (UploadThing)
+
+  sentAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Cursor pagination: (conversationId, sentAt DESC)
+  @@index([conversationId, sentAt(sort: Desc)])
+  @@index([authorId])
+  @@map("community_messages")
+}
+
+model CommunityConversationParticipant {
+  id String @id @default(uuid())
+
+  conversationId String
+  conversation   CommunityConversation @relation("CommunityConversationParticipants", fields: [conversationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("CommunityConversationParticipants", fields: [userId], references: [id], onDelete: Cascade)
+
+  joinedAt   DateTime  @default(now())
+  lastReadAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@index([conversationId])
+  @@map("community_conversation_participants")
+}

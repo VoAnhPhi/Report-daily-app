@@ -1,0 +1,76 @@
+enum DocumentReviewType {
+  create
+  update
+  delete
+}
+
+enum DocumentReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model DocumentReview {
+  id String @id @default(cuid())
+
+  type   DocumentReviewType
+  status DocumentReviewStatus @default(pending)
+
+  // Snapshot of the proposed document data (full JSON for create/update, null for delete)
+  proposedData Json? // Full document payload
+  previousData Json? // Snapshot of current document state before change (for update/delete)
+
+  // Document reference (null for create since document doesn't exist yet)
+  documentId String?
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  // Submitter
+  submittedById String
+  submittedBy   User     @relation("DocumentReviewSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime @default(now())
+
+  // Reviewer (filled on approve/reject)
+  reviewedById String?
+  reviewedBy   User?     @relation("DocumentReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  // Reviewer feedback
+  reviewNote   String?  @db.Text
+  reviewImages String[] // uploadthing URLs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Audit log entries
+  auditLogs DocumentReviewAuditLog[]
+
+  @@index([status])
+  @@index([type])
+  @@index([documentId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("document_reviews")
+}
+
+model DocumentReviewAuditLog {
+  id String @id @default(cuid())
+
+  action   String // submitted, approved, rejected, cancelled
+  note     String? @db.Text
+  metadata Json? // Any extra context
+
+  performedById String
+  performedBy   User   @relation("DocumentReviewAuditPerformer", fields: [performedById], references: [id])
+
+  reviewId String
+  review   DocumentReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("document_review_audit_logs")
+}

@@ -1,0 +1,211 @@
+// ==================== EMAIL SYSTEM SCHEMA ====================
+
+enum EmailStatus {
+  draft
+  sent
+  failed
+  pending
+}
+
+enum EmailType {
+  newsletter
+  promotional
+  transactional
+  notification
+  system
+}
+
+enum EmailPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+model EmailTemplate {
+  id          String    @id @default(cuid())
+  name        String
+  subject     String
+  content     String    @db.Text
+  quillDelta  Json? // Rich text format data for editor
+  category    EmailType @default(notification)
+  description String?
+  isActive    Boolean   @default(true)
+
+  // Relations
+  createdById String
+  createdBy   User        @relation("EmailTemplateCreatedBy", fields: [createdById], references: [id])
+  sentEmails  SentEmail[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([category])
+  @@index([isActive])
+  @@map("email_templates")
+}
+
+model EmailDraft {
+  id         String @id @default(cuid())
+  subject    String
+  content    String @db.Text
+  recipients Json // Store recipients data
+  metadata   Json? // Store additional metadata
+
+  // Relations
+  createdById String
+  createdBy   User   @relation("EmailDraftCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdById])
+  @@map("email_drafts")
+}
+
+model SentEmail {
+  id             String      @id @default(cuid())
+  subject        String
+  content        String      @db.Text
+  recipientCount Int
+  status         EmailStatus @default(sent)
+
+  // Email configuration
+  priority EmailPriority @default(normal)
+  tags     String[]      @default([])
+  metadata Json? // Store email metadata
+
+  // Relations
+  templateId  String?
+  template    EmailTemplate? @relation(fields: [templateId], references: [id])
+  createdById String
+  createdBy   User           @relation("SentEmailCreatedBy", fields: [createdById], references: [id])
+
+  // Analytics
+  openedCount     Int @default(0)
+  clickedCount    Int @default(0)
+  bouncedCount    Int @default(0)
+  complainedCount Int @default(0)
+
+  // Timestamps
+  sentAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations for analytics
+  recipients EmailRecipient[]
+  events     EmailEvent[]
+
+  @@index([status])
+  @@index([sentAt])
+  @@index([createdById])
+  @@index([templateId])
+  @@map("sent_emails")
+}
+
+model EmailRecipient {
+  id     String      @id @default(cuid())
+  email  String
+  userId String?
+  status EmailStatus @default(sent)
+
+  // Relations
+  sentEmailId String
+  sentEmail   SentEmail @relation(fields: [sentEmailId], references: [id], onDelete: Cascade)
+
+  // Events for this recipient
+  events EmailEvent[]
+
+  // Analytics
+  openedAt     DateTime?
+  clickedAt    DateTime?
+  bouncedAt    DateTime?
+  complainedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sentEmailId, email])
+  @@index([email])
+  @@index([userId])
+  @@map("email_recipients")
+}
+
+model EmailEvent {
+  id        String   @id @default(cuid())
+  eventType String // 'opened', 'clicked', 'bounced', 'complained'
+  eventData Json? // Additional event data
+  ipAddress String?
+  userAgent String?
+  timestamp DateTime @default(now())
+
+  // Relations
+  sentEmailId String
+  sentEmail   SentEmail       @relation(fields: [sentEmailId], references: [id], onDelete: Cascade)
+  recipientId String?
+  recipient   EmailRecipient? @relation(fields: [recipientId], references: [id])
+
+  @@index([sentEmailId])
+  @@index([recipientId])
+  @@index([eventType])
+  @@index([timestamp])
+  @@map("email_events")
+}
+
+// ==================== EMAIL ANALYTICS ====================
+
+model EmailAnalyticsDaily {
+  id   String   @id @default(cuid())
+  date DateTime @unique // Date in YYYY-MM-DD format
+
+  // Email counts
+  sentCount         Int @default(0)
+  deliveredCount    Int @default(0)
+  openedCount       Int @default(0)
+  clickedCount      Int @default(0)
+  bouncedCount      Int @default(0)
+  complainedCount   Int @default(0)
+  unsubscribedCount Int @default(0)
+
+  // Email templates used
+  templateUsage Json @default("[]") // Array of {templateId, count}
+
+  // Performance metrics
+  openRate      Float @default(0) // deliveredCount > 0 ? openedCount / deliveredCount : 0
+  clickRate     Float @default(0) // deliveredCount > 0 ? clickedCount / deliveredCount : 0
+  bounceRate    Float @default(0) // sentCount > 0 ? bouncedCount / sentCount : 0
+  complaintRate Float @default(0) // sentCount > 0 ? complainedCount / sentCount : 0
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("email_analytics_daily")
+}
+
+model EmailAnalyticsTemplate {
+  id         String @id @default(cuid())
+  templateId String
+
+  // Performance metrics for this template
+  sentCount       Int @default(0)
+  deliveredCount  Int @default(0)
+  openedCount     Int @default(0)
+  clickedCount    Int @default(0)
+  bouncedCount    Int @default(0)
+  complainedCount Int @default(0)
+
+  // Rates
+  openRate      Float @default(0)
+  clickRate     Float @default(0)
+  bounceRate    Float @default(0)
+  complaintRate Float @default(0)
+
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([templateId])
+  @@index([sentCount])
+  @@map("email_analytics_template")
+}

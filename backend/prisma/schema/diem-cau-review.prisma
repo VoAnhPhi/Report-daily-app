@@ -1,0 +1,169 @@
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  ĐÁNH GIÁ ĐIỂM CẦU — BẢNG ĐÁNH GIÁ DUY NHẤT, GẮN THẲNG VÀO KHO           ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+//
+// ⚠ ĐÍNH CHÍNH 07/09/2026 — KHỐI LÝ DO CŨ ĐÃ HẾT HIỆU LỰC, CỐ Ý VIẾT LẠI.
+// Bản trước dài gần 60 dòng giải thích vì sao KHÔNG dùng lại hạ tầng đánh giá của
+// "địa điểm kinh doanh". Thực thể đó nay không còn tồn tại (migration
+// `20260907120000_gop_dia_diem_vao_kho`), nên giữ nguyên khối ấy là để lại một lời
+// giải thích đối chiếu với một thứ người đọc không tìm thấy — tệ hơn là không có
+// chú thích nào, vì nó khiến người ta đi tìm một bảng đã bị xoá. Lập luận gốc còn
+// nguyên trong lịch sử git của tệp này.
+//
+// ĐIỀU CÒN ĐÚNG VÀ VẪN LÀ LÝ DO THIẾT KẾ
+// ───────────────────────────────────────
+// KHÔNG BẮT CHECK-IN TRƯỚC. Hạ tầng đánh giá cũ đòi một lượt check-in hợp lệ trong
+// 30 ngày mới cho viết. Chủ dự án chốt 25/08/2026 là đánh giá điểm cầu làm "tương
+// tự Google Maps": đăng nhập là viết được. Điểm cầu là nơi khách tới NHẬN HÀNG —
+// người vừa nhận hàng xong nên nói được ngay.
+// Chống lạm dụng thay bằng `@@unique([warehouseId, userId])`: mỗi người ĐÚNG MỘT
+// đánh giá cho mỗi điểm cầu, sửa được chứ không xếp chồng.
+//
+// SAO NGUYÊN, KHÔNG NỬA SAO. `Int` chứ không `Decimal(2,1)`: giao diện chỉ cho
+// chọn sao nguyên, và bản cũ đã trả giá vì hai tầng nói khác nhau — acta-solutions
+// cho `multipleOf(0.5)` trong khi acta-api khai `@IsInt()`, nên 4,5 sao đi lọt hợp
+// đồng phía trước rồi bị chặn 400 ở phía sau.
+//
+// VÌ SAO CÓ BẢNG LỊCH SỬ RIÊNG (26/08/2026)
+// ──────────────────────────────────────────
+// Chủ dự án chốt: đánh giá sửa được, nhưng người đọc phải BIẾT nó đã bị sửa và xem
+// được nội dung cũ. Ràng buộc `@@unique` ở trên khiến bản ghi hiện tại bị GHI ĐÈ
+// mỗi lần sửa — không có bảng thứ hai thì phiên bản cũ biến mất vĩnh viễn ngay lúc
+// bấm Lưu, và cái nhãn "đã chỉnh sửa" sẽ là một lời hứa rỗng: bấm vào không có gì
+// để xem.
+//
+// Vì sao KHÔNG nhồi lịch sử vào chính `diem_cau_reviews` (thêm cột JSON, hoặc cho
+// phép nhiều dòng rồi đánh dấu dòng mới nhất):
+//   • Cột JSON không có ràng buộc nào canh, nên phiên bản trùng số hoặc thiếu
+//     trường sẽ lọt xuống DB rồi nổ ở tầng hiển thị — đúng kiểu hỏng câm mà
+//     `@@unique([reviewId, version])` dưới đây chặn được ngay tại DB.
+//   • Cho nhiều dòng rồi lọc "mới nhất" thì MỌI truy vấn đếm sao, tính trung bình
+//     và phân bố đều phải nhớ thêm bộ lọc đó. Quên một chỗ là điểm trung bình đếm
+//     cả bản cũ lẫn bản mới của cùng một người.
+
+// Trạng thái kiểm duyệt của đánh giá.
+//
+// ⚠ Enum này CHUYỂN TỪ tệp đánh giá "địa điểm kinh doanh" sang đây ngày
+// 07/09/2026, khi bảng ấy bị xoá. Kiểu Postgres `"ReviewModerationStatus"` KHÔNG
+// bị drop — `diem_cau_reviews.moderationStatus` vẫn dùng nó, chỉ chỗ khai báo
+// trong lược đồ Prisma là đổi.
+enum ReviewModerationStatus {
+  visible // Đang hiển thị công khai
+  flagged // Đã bị report — đang chờ duyệt
+  hidden // Ẩn bởi admin / moderator
+  removed // Xóa vĩnh viễn (không hiển thị)
+}
+
+/// Đánh giá của người dùng cho một điểm cầu (kho).
+model DiemCauReview {
+  id String @id @default(cuid())
+
+  /// Điểm cầu được đánh giá. Xoá kho thì xoá luôn đánh giá — đánh giá không có
+  /// ý nghĩa độc lập khi nơi chốn không còn.
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  /// Người viết. Xoá tài khoản thì xoá luôn đánh giá (đúng luật xoá dữ liệu cá
+  /// nhân), khác với `onDelete: SetNull` vì đánh giá ẩn danh không có giá trị.
+  userId String
+  user   User   @relation("UserDiemCauReviews", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// 1–5 sao. CỐ Ý dùng `Int` chứ không phải `Decimal(2,1)` như
+  /// hạ tầng đánh giá cũ — xem khối đầu tệp.
+  rating Int
+
+  /// Nội dung. Cho phép rỗng: nhiều người chỉ muốn chấm sao, đúng như Google
+  /// Maps. Bắt buộc viết chữ là ép người ta gõ cho có, làm bẩn dữ liệu.
+  body String @default("") @db.Text
+
+  /// Ảnh đính kèm (URL UploadThing — bất biến #6 của workspace).
+  images String[]
+
+  /// Enum khai ngay trên tệp này (chuyển về từ hạ tầng đánh giá cũ, 07/09/2026).
+  moderationStatus ReviewModerationStatus @default(visible)
+
+  /// Lý do ẩn/gỡ do quản trị viên ghi.
+  moderationReason String?
+
+  /// Các phiên bản ĐÃ BỊ THAY THẾ của chính đánh giá này, cũ nhất trước.
+  /// Rỗng = chưa từng sửa.
+  edits DiemCauReviewEdit[]
+
+  /// Báo cáo vi phạm nhắm vào chính đánh giá này.
+  ///
+  /// ⚠ Trước 07/09/2026 cột `reviewId` của bảng báo cáo vi phạm chỉ là một cột
+  /// chuỗi TRẦN, không khoá ngoại — nên xoá một đánh giá để lại báo cáo trỏ vào hư
+  /// không mà không cổng nào kêu. Nay là FK thật với `SetNull`.
+  violationReports WarehouseViolationReport[]
+
+  /// Số lần đã sửa. `0` = chưa từng sửa ⇒ giao diện KHÔNG hiện nhãn "đã chỉnh
+  /// sửa". Cố ý lưu thành cột thay vì đếm `edits` mỗi lần đọc: danh sách đánh
+  /// giá là đường đọc nóng nhất của trang bản đồ, và một phép đếm quan hệ cho
+  /// MỖI dòng là N+1 truy vấn cho đúng một con số nhị phân.
+  ///
+  /// Cột này còn là chốt CAS: lệnh sửa mang theo giá trị nó vừa đọc được, nên
+  /// hai lần sửa chồng nhau thì lần đến sau không ghi đè lặng lẽ lần đầu.
+  editCount Int @default(0)
+
+  /// Lần sửa GẦN NHẤT. `null` = chưa từng sửa.
+  ///
+  /// ⚠ KHÔNG dùng `updatedAt` cho việc này: `@updatedAt` nhảy theo MỌI lần ghi,
+  /// kể cả lần kiểm duyệt viên đổi `moderationStatus` — và khi đó giao diện sẽ
+  /// gắn nhãn "đã chỉnh sửa" lên một bài mà tác giả chưa hề đụng tới.
+  editedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Mỗi người ĐÚNG MỘT đánh giá cho mỗi điểm cầu. Đây là chốt chống lạm dụng
+  /// thay cho ràng buộc check-in; muốn đổi ý thì sửa đánh giá cũ.
+  @@unique([warehouseId, userId])
+  /// Khớp đúng truy vấn danh sách: lọc theo điểm cầu + chỉ lấy bản đang hiện,
+  /// sắp mới nhất trước.
+  @@index([warehouseId, moderationStatus, createdAt(sort: Desc)])
+  @@index([userId])
+  @@map("diem_cau_reviews")
+}
+
+/// Một phiên bản ĐÃ BỊ THAY THẾ của một đánh giá điểm cầu.
+///
+/// Mỗi dòng là ảnh chụp nội dung NGAY TRƯỚC một lần sửa, không phải nội dung
+/// sau khi sửa. Bản đang hiển thị luôn nằm ở `diem_cau_reviews`; ghép hai nguồn
+/// lại theo `version` tăng dần là ra toàn bộ dòng đời của đánh giá đó.
+model DiemCauReviewEdit {
+  id String @id @default(cuid())
+
+  /// Đánh giá gốc. Xoá đánh giá thì xoá luôn lịch sử — một lịch sử mồ côi
+  /// không có gì để so sánh, và giữ lại nội dung của một bài người dùng đã chủ
+  /// động xoá là đi ngược quyền xoá dữ liệu cá nhân.
+  reviewId String
+  review   DiemCauReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  /// Ba trường dưới đây là ẢNH CHỤP, cố ý sao chép chứ không tham chiếu: nội
+  /// dung cũ phải đọc lại được y nguyên kể cả sau khi bản hiện tại đổi tiếp.
+  rating Int
+  body   String   @default("") @db.Text
+  images String[]
+
+  /// Số thứ tự phiên bản, bắt đầu từ 1 cho bản viết đầu tiên. Sau `n` lần sửa,
+  /// bảng này giữ các phiên bản `1..n` và bản đang hiển thị là `n+1`.
+  version Int
+
+  /// Thời điểm phiên bản này bị thay thế = thời điểm xảy ra lần sửa.
+  replacedAt DateTime @default(now())
+
+  /// Chốt chống ghi đè lặng lẽ Ở TẦNG DB.
+  ///
+  /// Hai lần sửa chạy song song đều đọc `editCount = 0` sẽ cùng muốn ghi
+  /// `version = 1`; ràng buộc này khiến lần đến sau nhận lỗi khoá trùng thay vì
+  /// tạo ra hai "phiên bản 1" khác nhau — thứ sẽ hiện thành lịch sử mâu thuẫn
+  /// mà không cổng nào bắt được. Tầng dịch vụ quy lỗi đó về 409 kèm câu tiếng
+  /// Việt bảo người dùng tải lại.
+  ///
+  /// Ràng buộc này cũng CHÍNH LÀ chỉ mục của truy vấn lịch sử (`reviewId` +
+  /// xếp theo `version`), nên KHÔNG khai thêm `@@index([reviewId, version])`:
+  /// Postgres sẽ dựng hai chỉ mục y hệt nhau trên cùng hai cột, tốn chỗ và tốn
+  /// công ghi mà không truy vấn nào nhanh thêm.
+  @@unique([reviewId, version])
+  @@map("diem_cau_review_edits")
+}

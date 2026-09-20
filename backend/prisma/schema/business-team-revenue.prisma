@@ -1,0 +1,88 @@
+// ============================================================================
+// BUSINESS TEAM REVENUE DISTRIBUTION
+// Monthly payout split between leader+chief tier and member tier.
+// Cron: @Cron('5 5 5 * *') — 5th of every month at 05:05 UTC (12:05 VN)
+// ============================================================================
+
+enum BusinessTeamRevenueDistributionStatus {
+  pending
+  processing
+  completed
+  failed
+  skipped
+}
+
+// One batch per team per period. batchCode = "BTR-YYYYMM-<teamId>" (unique = idempotent).
+model BusinessTeamRevenueDistribution {
+  id        String @id @default(cuid())
+  batchCode String @unique // "BTR-202504-<teamId>"
+
+  teamId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  totalRevenue BigInt
+
+  // Snapshot of effective percentage at cron time (team override ?? global AppConfig)
+  leaderChiefPct Int
+
+  leaderChiefTotal BigInt
+  memberTotal      BigInt
+  leaderChiefCount Int
+  memberCount      Int
+
+  status      BusinessTeamRevenueDistributionStatus @default(pending)
+  processedAt DateTime?
+
+  // Error details for failed/skipped batches
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shares          BusinessTeamRevenueShare[]
+  teamCommissions TeamCommission[]           @relation("DistributionTeamCommissions")
+
+  @@index([teamId])
+  @@index([status])
+  @@index([periodStart])
+  @@map("business_team_revenue_distributions")
+}
+
+// One share row per member per batch. Amount credited to AffiliateWallet.availableBalance.
+model BusinessTeamRevenueShare {
+  id             String                          @id @default(cuid())
+  distributionId String
+  distribution   BusinessTeamRevenueDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role TeamMemberRole
+
+  amount     BigInt
+  creditedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([distributionId])
+  @@index([userId])
+  @@map("business_team_revenue_shares")
+}
+
+// ============================================================================
+// APP CONFIG — generic key-value store for dynamic admin-controlled settings.
+// Distinct from SystemConfig (which is KiotViet-specific).
+// Key used by this feature: "business_team_leader_chief_pct"
+// ============================================================================
+
+model AppConfig {
+  key   String @id
+  value String
+
+  updatedAt DateTime @updatedAt
+
+  @@map("app_configs")
+}

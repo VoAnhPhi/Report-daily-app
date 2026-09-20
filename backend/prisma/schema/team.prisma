@@ -1,0 +1,277 @@
+// ============================================================================
+// TEAM SYSTEM - Team Management and Member Roles
+// ============================================================================
+
+// Team member roles
+enum TeamMemberRole {
+  leader
+  chief
+  member
+}
+
+// Team request status for approval workflow
+enum TeamRequestStatus {
+  pending_approve
+  pending_left
+  approved
+  rejected
+  removed
+  left
+}
+
+// Team model - Core team information
+model Team {
+  id   String @id @default(uuid())
+  name String
+
+  // Metadata - KPI tracking
+  metadata Json? // { kpiOfOrder: number, kpiOfRevenue: number }
+
+  // Timestamps
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
+
+  // Per-team override for leader/chief share percentage (null = use global AppConfig)
+  leaderChiefSharePercentOverride Int?
+
+  // Relations
+  members  TeamMember[]
+  requests TeamRequest[]
+
+  // Analytics V2 Relations
+  dailyMetrics TeamDailyMetric[] @relation("TeamDailyMetrics")
+
+  // Revenue Distribution Relations
+  revenueDistributions BusinessTeamRevenueDistribution[]
+
+  // Team Commission Relations — per-order contributions attributed to this team
+  teamCommissions TeamCommission[] @relation("TeamTeamCommissions")
+
+  // Multiverse - Mission System
+  missions Mission[] @relation("MissionTeam")
+
+  // Multiverse - Community Conversations
+  communityConversations CommunityConversation[] @relation("CommunityConversationTeam")
+
+  // Cấu hình báo cáo hằng ngày (nếu đội bật) — xem daily-report.prisma
+  reportScopes DailyReportScope[]
+
+  @@index([name])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("teams")
+}
+
+// Team Member - Active membership relationship (only approved members)
+// Represents current active membership between User and Team
+model TeamMember {
+  id String @id @default(uuid())
+
+  // Relations
+  userId String
+  user   User   @relation("UserTeamMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  teamId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  // Member role in the team
+  role TeamMemberRole @default(member)
+
+  // Timestamps
+  joinedAt  DateTime  @default(now()) // When member officially joined
+  leftAt    DateTime? // When member left the team (soft-delete support)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, teamId])
+  @@index([userId])
+  @@index([teamId])
+  @@index([role])
+  @@index([joinedAt])
+  @@index([leftAt])
+  @@map("team_members")
+}
+
+// Team Request - Handles all join/leave/removal requests (SRP: Single Responsibility)
+// Separates request workflow from active membership
+model TeamRequest {
+  id String @id @default(uuid())
+
+  // Relations
+  userId String
+  user   User   @relation("UserTeamRequests", fields: [userId], references: [id], onDelete: Cascade)
+
+  teamId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  // Request status - managed by admin or user action
+  status TeamRequestStatus @default(pending_approve)
+
+  // Who performed the action (admin or user)
+  performedById String? // User who performed the action (admin for approve/reject/remove, user for left)
+  performedBy   User?     @relation("TeamRequestPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
+  performedAt   DateTime?
+
+  // Additional information
+  notes String? // Reason for rejection, removal, or leaving
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([teamId])
+  @@index([status])
+  @@index([performedById])
+  @@index([createdAt])
+  @@index([performedAt])
+  @@map("team_requests")
+}
+
+// ============================================================================
+// ANALYTICS V2 - Simplified Daily Metrics
+// ============================================================================
+
+// User Lifetime Aggregate - Total metrics across all time for each user
+// Each user has exactly ONE lifetime metric record (1:1 relation)
+// Updated incrementally when UserDailyMetric changes
+// Used for Portfolio Mode analytics (no time filter)
+model UserLifetimeMetric {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  // 8 Core Metrics (summed from all UserDailyMetric)
+  directReferrals       Int    @default(0) // Total active referrals
+  revenuePreTax         BigInt @default(0) // Total pre-tax revenue (all products)
+  f1RevenuePreTax       BigInt @default(0) // Total pre-tax revenue from direct referrals (F1)
+  revenuePreTaxBusiness BigInt @default(0) // Pre-tax revenue from isBusinessRevenue=true products only (đội nhóm nghiệp vụ)
+  activePosts           Int    @default(0) // Total active posts
+  proPosts              Int    @default(0) // Total pro posts
+  gamePoints            Int    @default(0) // Total game points
+  likeCount             Int    @default(0) // Total likes received
+  commentCount          Int    @default(0) // Total comments received
+
+  // Tracking
+  lastCalculatedAt DateTime @default(now()) // When this aggregate was last updated
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserLifetimeMetrics", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lastCalculatedAt])
+  @@map("user_lifetime_metrics")
+}
+
+// User Daily Fact Table - Core metrics per user per day
+// Populated by cron job every 8 hours, finalized at midnight UTC
+model UserDailyMetric {
+  id     String   @id @default(uuid())
+  userId String
+  date   DateTime // 00:00:00 UTC
+
+  // 8 Core Metrics
+  directReferrals       Int    @default(0) // New active referrals created on this date
+  revenuePreTax         BigInt @default(0) // Pre-tax revenue from orders (all products)
+  f1RevenuePreTax       BigInt @default(0) // Pre-tax revenue from orders of direct referrals (F1)
+  revenuePreTaxBusiness BigInt @default(0) // Pre-tax revenue from isBusinessRevenue=true products (đội nhóm nghiệp vụ)
+  activePosts           Int    @default(0) // Active posts (ACTIVE_POST_LOGGED activity)
+  proPosts              Int    @default(0) // Pro posts (PRO_POST_LOGGED activity)
+  gamePoints            Int    @default(0) // Points from game_perfect_score
+  likeCount             Int    @default(0) // Total likes received on user's posts
+  commentCount          Int    @default(0) // Total comments on user's posts
+
+  // Finalization flag - set to true at midnight UTC
+  isFinal Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserDailyMetrics", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([date])
+  @@index([userId, date])
+  @@map("user_daily_metrics")
+}
+
+/// Materialised Điểm năng lực (capability score). Computed nightly at 00:30 VN
+/// by UserCapabilityScoreCronService. Source tables: UserKYC, AffiliateCommission,
+/// UserRecognition v2, user_referral_closures. Phase 17 / SCORE-03 + SCORE-06.
+model UserAnalyticsStats {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Materialised Điểm năng lực for the canonical windowDays=30 window.
+  /// Null until first cron run / backfill completes.
+  capabilityScore          Float?
+  capabilityScoreUpdatedAt DateTime?
+
+  /// Materialised 5-component breakdown matching capabilityScore's basis.
+  /// Shape: { f1Kyc: number, f2Kyc: number, sales: number,
+  ///          f1Shareholder: number, f2Shareholder: number }
+  /// Null until first cron run / backfill writes it.
+  capabilityScoreComponents Json?
+
+  /// Window in days used when the materialised capabilityScore was computed.
+  /// Default 30; nightly cron always uses 30. On-demand recompute may use 7/90/365/null.
+  capabilityScoreWindowDays Int? @default(30)
+
+  /// All-time materialised capability score (windowDays = null / Tất cả).
+  /// Written nightly alongside capabilityScore. Null until first cron run.
+  capabilityScoreAllTime Float?
+
+  /// All-time components matching capabilityScoreAllTime — same JSON shape
+  /// as capabilityScoreComponents.
+  capabilityScoreAllTimeComponents Json?
+
+  /// Timestamp of the all-time materialisation.
+  capabilityScoreAllTimeUpdatedAt DateTime?
+
+  /// VIDEO RÈN LUYỆN — materialised training level (Phase 50). Cron-only writer
+  /// (single noon @Cron('0 5 * * *')); never real-time. D-3/D-6: NOT linked to
+  /// capabilityScore / leaderboards.
+  trainingLevel           Int       @default(1)
+  trainingLevelComputedAt DateTime?
+  trainingLevelAchievedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([capabilityScore])
+  @@index([capabilityScoreAllTime])
+  @@map("user_analytics_stats")
+}
+
+// Team Daily Snapshot - Aggregated metrics per team per day
+// Derived from UserDailyMetric for active team members
+model TeamDailyMetric {
+  id     String   @id @default(uuid())
+  teamId String
+  date   DateTime // 00:00:00 UTC
+
+  // 7 Core Metrics (summed from active members)
+  directReferrals       Int
+  revenuePreTax         BigInt
+  revenuePreTaxBusiness BigInt @default(0) // Pre-tax revenue from isBusinessRevenue=true products
+  activePosts           Int
+  proPosts              Int
+  gamePoints            Int
+  likeCount             Int    @default(0)
+  commentCount          Int    @default(0)
+
+  // Comparison data with previous period
+  comparedToPrevious Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team Team @relation("TeamDailyMetrics", fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, date])
+  @@index([date])
+  @@index([teamId, date])
+  @@map("team_daily_metrics")
+}

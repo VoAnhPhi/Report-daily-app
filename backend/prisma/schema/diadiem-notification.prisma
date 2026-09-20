@@ -1,0 +1,35 @@
+// Loại thông báo trong domain diadiem
+enum NotificationKind {
+  compliance_approved // Hồ sơ tuân thủ được phê duyệt
+  compliance_rejected // Hồ sơ tuân thủ bị từ chối
+  doc_expiring // Tài liệu sắp hết hạn (30 ngày / 7 ngày)
+  offer_approved // Ưu đãi được phê duyệt
+  offer_rejected // Ưu đãi bị từ chối
+  offer_expiring // Ưu đãi sắp hết hạn
+  review_received // Nhận đánh giá mới
+  review_reply_posted // Doanh nghiệp phản hồi đánh giá của bạn
+  claim_approved // Yêu cầu nhận quyền được chấp thuận
+  claim_rejected // Yêu cầu nhận quyền bị từ chối
+  check_in_milestone // Đạt mốc check-in (10, 50, 100...)
+  other // Thông báo khác
+}
+
+// Thông báo nội domain diadiem (tách khỏi notification.prisma chung)
+model DiadiemNotification {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation("DiadiemNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  kind    NotificationKind
+  payload Json // Nội dung cụ thể theo từng kind (VD: { locationId, locationName, docType })
+
+  readAt DateTime? // null = chưa đọc
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt(sort: Desc)])
+  @@index([userId, kind])
+  @@index([createdAt])
+  @@map("diadiem_notifications")
+}

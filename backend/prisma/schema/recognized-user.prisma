@@ -1,0 +1,248 @@
+// ==================== RECOGNITION TYPES ====================
+// Master table defining all possible recognition categories
+model RecognitionType {
+  id   String @id @default(cuid()) // Primary key
+  code String @unique // Unique identifier (e.g., "sharing", "professional")
+  name String // Display name (localized/business-friendly)
+
+  hasLevel Boolean @default(false) // Whether this type supports leveling
+  maxLevel Int? // Optional max level constraint (null = unlimited)
+
+  createdAt DateTime @default(now()) // Creation timestamp
+
+  // One-to-many: one type → many user recognitions
+  userRecognitions UserRecognition[] @relation("TypeToUserRecognitions")
+
+  // Generic grant history for this type
+  grantHistory RecognitionGrantHistory[] @relation("TypeGrantHistory")
+
+  @@map("recognition_types") // Map to DB table
+}
+
+// ==================== USER RECOGNITIONS (V2) ====================
+// Normalized model: each row = 1 user + 1 recognition type
+model UserRecognition {
+  id String @id @default(cuid()) // Primary key
+
+  userId String // FK → User
+  typeId String // FK → RecognitionType
+
+  // Many-to-one: multiple recognitions per user
+  user User @relation("UserRecognitions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Many-to-one: each recognition belongs to a type
+  type RecognitionType @relation("TypeToUserRecognitions", fields: [typeId], references: [id])
+
+  // When the user achieved this recognition type (i.e. the moment an admin clicked
+  // the công nhận button to grant it).
+  recognizedAt DateTime @default(now())
+
+  /// Exact moment the user first satisfied EVERY criterion of the anchor preset —
+  /// carried over from MstlEligibilityState.qualifiedAt at grant time. Sits alongside
+  /// `recognizedAt` (admin-click time) so admins can see BOTH "đủ điều kiện lúc" and
+  /// "được công nhận lúc". Null for legacy grants / non-preset-driven types.
+  criteriaMetAt DateTime?
+
+  // Level for this specific recognition type (only meaningful if type.hasLevel = true)
+  level Int @default(0)
+
+  // Who granted this recognition (type-specific in v2)
+  recognizedBy     String? // FK → User
+  recognizedByUser User?   @relation("UserRecognizedBy", fields: [recognizedBy], references: [id])
+
+  // ─── Preset anchor (used by elder/MSTL flow; null for non-preset-driven types) ───
+  /// The preset whose criteria currently "carry" this recognition. May refer to a
+  /// preset that is no longer active (grandfathered case). Null when the title was
+  /// granted before presets existed (or the type doesn't use presets).
+  currentPresetId String?
+  currentPreset   CompletionRequirementPreset? @relation("UserRecognitionAnchor", fields: [currentPresetId], references: [id], onDelete: SetNull)
+
+  /// True when admin should re-evaluate this recognition (e.g. anchor preset
+  /// edited or a different preset has been activated).
+  needsReview Boolean @default(false)
+
+  /// Human-readable reason for the review flag: 'preset_edited', 'preset_swapped',
+  /// 'manual', or null when not flagged.
+  reviewReason String?
+
+  lastReviewedAt     DateTime?
+  lastReviewedBy     String? // FK → User (admin)
+  lastReviewedByUser User?     @relation("UserRecognitionLastReviewedBy", fields: [lastReviewedBy], references: [id])
+
+  createdAt DateTime @default(now()) // Record creation timestamp
+  updatedAt DateTime @updatedAt // Auto-updated timestamp
+
+  // History rows referencing this recognition for analytics/UI joins
+  grantHistory RecognitionGrantHistory[] @relation("UserRecognitionHistory")
+
+  // Ensure a user can only have one record per recognition type
+  @@unique([userId, typeId])
+  @@index([userId]) // Optimize queries by user
+  @@index([typeId]) // Optimize queries by type
+  @@index([currentPresetId])
+  @@index([needsReview])
+  @@map("user_recognitions") // Map to DB table
+}
+
+// ==================== RECOGNITION GRANT HISTORY ====================
+// Append-only event log for recognition grants/revocations/anchor transitions.
+// Generic across all RecognitionType codes (currently focused on elder/MSTL but
+// not hard-coded so other types can adopt later).
+enum RecognitionGrantEvent {
+  granted // First-time or re-grant of the recognition
+  revoked_admin // Admin removed the recognition (no specific reason)
+  revoked_criteria_failed // Admin reviewed, user failed criteria, admin chose to revoke
+  anchor_transferred // Same recognition, anchor moved from preset A → preset B
+  review_kept_grandfather // Admin reviewed, user fails new preset, admin kept grandfather
+  review_passed_new_preset // Admin reviewed, user passes new preset → anchor moves
+  preset_edited_review_pending // System notes that anchor preset was edited and review is needed
+  preset_swapped_review_pending // System notes that a different preset is now active
+  backfilled // Created via the one-shot backfill button
+}
+
+model RecognitionGrantHistory {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserGrantHistory", fields: [userId], references: [id], onDelete: Cascade)
+
+  typeId String
+  type   RecognitionType @relation("TypeGrantHistory", fields: [typeId], references: [id])
+
+  /// FK to the UserRecognition row at the time the event was written. May go null
+  /// if the recognition is later revoked (the row is deleted). The history row
+  /// itself is preserved for audit.
+  userRecognitionId String?
+  userRecognition   UserRecognition? @relation("UserRecognitionHistory", fields: [userRecognitionId], references: [id], onDelete: SetNull)
+
+  /// Preset that was the anchor at the time of this event (or active preset when granted).
+  presetId String?
+  preset   CompletionRequirementPreset? @relation("PresetGrantHistory", fields: [presetId], references: [id], onDelete: SetNull)
+
+  /// For anchor_transferred / review_passed_new_preset: the preset the user was on before.
+  previousPresetId String?
+  previousPreset   CompletionRequirementPreset? @relation("PresetGrantHistoryPrev", fields: [previousPresetId], references: [id], onDelete: SetNull)
+
+  event RecognitionGrantEvent
+
+  /// Did the user actually meet the preset's full criteria at this moment?
+  /// false = grandfathered or admin override.
+  metCriteria Boolean @default(true)
+
+  /// True when admin chose to keep the recognition despite criteria failing.
+  wasOverride Boolean @default(false)
+
+  /// Snapshot of the user's metric values at this moment (revenuePreTax, etc.)
+  metricSnapshot Json?
+
+  /// Snapshot of the preset's requirements at this moment (for archival even if
+  /// preset is later edited).
+  presetSnapshotVersion Json?
+
+  /// Admin-supplied note explaining the decision (nullable).
+  note String?
+
+  /// Source path: 'admin_metadata_modal' | 'v2_assign' | 'bulk' |
+  /// 'preset_swap_review' | 'preset_edit_review' | 'backfill' | 'system_cron'
+  grantSource String?
+
+  /// Admin who performed the action (null for system-generated events).
+  performedBy     String?
+  performedByUser User?   @relation("HistoryPerformedBy", fields: [performedBy], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, typeId, createdAt])
+  @@index([typeId, presetId])
+  @@index([presetId, createdAt])
+  @@index([event])
+  @@index([userRecognitionId])
+  @@map("recognition_grant_history")
+}
+
+// ==================== MSTL ELIGIBILITY STATE ====================
+// Per-user tracking of Minh sứ trưởng lão (elder/MSTL) auto-qualification.
+//
+// Purpose: capture the EXACT moment a user first satisfies every criterion of the
+// currently-active CompletionRequirementPreset — independent of whether an admin has
+// clicked the "công nhận" button yet. This powers:
+//   1. The exact `qualifiedAt` datetime the operator asked to record, sitting
+//      alongside UserRecognition.recognizedAt (the admin-click time).
+//   2. The admin broadcast (mail + in-app) listing users who are đủ điều kiện MSTL
+//      nhưng CHƯA được công nhận.
+//
+// Lifecycle (maintained by MstlQualificationService):
+//   • not eligible  → isEligible=false, qualifiedAt=null
+//   • becomes eligible under active preset → qualifiedAt stamped = exact moment,
+//     adminNotifiedAt reset to null (a fresh qualifier to broadcast)
+//   • active preset rotates → treated as a fresh qualification (re-stamp)
+//   • drops below eligibility → isEligible=false, qualifiedAt reset to null
+//   • admin grants elder → recognizedAt stamped; row is excluded from the pending
+//     broadcast via the elder-recognition join (kept for audit/history)
+model MstlEligibilityState {
+  id String @id @default(uuid())
+
+  userId String @unique // exactly one state row per user
+  user   User   @relation("UserMstlEligibility", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Active preset under which the user currently qualifies. SetNull if that preset
+  /// is later deleted (qualification is re-evaluated against the new active preset).
+  presetId String?
+  preset   CompletionRequirementPreset? @relation("MstlEligibilityPreset", fields: [presetId], references: [id], onDelete: SetNull)
+
+  /// EXACT moment the user first met every criterion of `preset`. Null while the user
+  /// is not eligible. Re-stamped fresh when the user re-qualifies or the active preset rotates.
+  qualifiedAt DateTime?
+
+  /// Current eligibility against the active preset (denormalized for cheap querying).
+  isEligible Boolean @default(false)
+
+  completedCount Int @default(0)
+  totalCount     Int @default(0)
+
+  /// Snapshot of the user's metric values + missing requirements at qualification time.
+  metricSnapshot Json?
+
+  /// When admins were last notified about THIS qualification. Null = a fresh qualifier
+  /// that still needs to be broadcast (dedup guard so admins aren't re-notified every scan).
+  adminNotifiedAt DateTime?
+
+  /// Mirror of when the user was actually recognized (elder granted). Null until granted.
+  recognizedAt DateTime?
+
+  /// Last time MstlQualificationService evaluated this user (cron + real-time hooks).
+  lastCheckedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isEligible, adminNotifiedAt])
+  @@index([isEligible, qualifiedAt])
+  @@index([presetId])
+  @@map("mstl_eligibility_states")
+}
+
+// ==================== SHAREHOLDER PERSONAL CELEBRATION ====================
+// Per-user marker for the login-time PERSONAL confetti that congratulates a user
+// when they first attain OR level up "Cổ đông lan tỏa" (sharing). It is display-only
+// and NEVER touches the dividend-recognized level (UserRecognition.level, which is
+// advanced solely by the monthly day-5 sweep). `celebratedLevel` is the highest
+// sharing level already celebrated for this user; the login flow shows a confetti
+// once whenever the live display level exceeds it, then acks it back here so the
+// same milestone never re-fires — including across devices.
+model UserShareholderCelebration {
+  id String @id @default(cuid())
+
+  userId String @unique // exactly one row per user
+  user   User   @relation("UserShareholderCelebration", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Highest sharing level a personal confetti has been shown for. Compared against
+  /// the live display level (max(computed, persisted)); display > celebratedLevel ⇒
+  /// a milestone is still pending. Forward-only (advanced via max on ack).
+  celebratedLevel Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_shareholder_celebrations")
+}

@@ -1,0 +1,277 @@
+// ==================== VIDEO RÈN LUYỆN (v1.5 Phase 48) ====================
+// Platform-global training-video feed with server-verified watch-to-earn points.
+// D-5: NO businessId on either model (no tenant scoping — like technical-activities).
+// ID strategy: @default(uuid()) for both models — these are CONTENT models
+// (live with NewsItem/Story which both use uuid); gamification's cuid is reserved
+// for the ActivityPointTransaction ledger family.
+
+enum TrainingVideoCategory {
+  onboarding
+  product
+  sales
+  compliance
+  other
+}
+
+enum TrainingVideoStatus {
+  draft
+  published
+  archived
+}
+
+enum TrainingVideoMetadataStatus {
+  pending
+  ready
+  missing_duration
+  sync_failed
+}
+
+/// Nhà cung cấp phát video CHO RIÊNG video rèn luyện (spec Phụ lục E, 2026-07-28).
+/// `mux` là mặc định để 63 hàng hiện có không đổi hành vi; `selfhosted` = MinIO
+/// + nginx-vod-module. Hai hệ chạy SONG SONG lâu dài — mọi nhóm video khác
+/// (bài viết social, tin tức, diễn đàn, tài liệu, sản phẩm…) vẫn dùng Mux và
+/// KHÔNG có cột này.
+enum TrainingVideoProvider {
+  mux
+  selfhosted
+}
+
+enum WatchProgressStatus {
+  in_progress
+  completed
+}
+
+model TrainingVideo {
+  id                      String                      @id @default(uuid())
+  slug                    String                      @unique
+  title                   String
+  description             String?                     @db.Text
+  category                TrainingVideoCategory
+  pointsReward            Int // điểm thưởng (Int per §12 — points are Int not Decimal)
+  minLevelForMultiplier   Int                         @default(1) // P53 — cấp tối thiểu để hưởng hệ số đầy đủ; dưới cấp ⇒ hệ số ×1
+  requiredCoveragePercent Int                         @default(95)
+  cooldownMinutes         Int                         @default(1440) // làm lạnh giữa 2 lần hoàn thành (phút); service enforces min 1440 = 24h
+  overrideCooldown        Boolean                     @default(false) // P54 D-01: false ⇒ mở lại 00:00 VN kế tiếp; true ⇒ now+cooldownMinutes
+  durationSeconds         Int? // server-written from Mux asset.ready webhook (48-03), NEVER client (T-48-01)
+  provider                TrainingVideoProvider       @default(mux) // Phụ lục E — mux (mặc định, không đổi hàng cũ) | selfhosted
+  muxAssetId              String?                     @unique
+  muxPlaybackId           String?                     @unique
+  /// Định danh phát của bản tự host. URL HLS = {MINIO_VOD_BASE_URL}/vod/video/{selfHostedKey}.json/master.m3u8
+  /// — dựng lúc ĐỌC chứ không lưu, để đổi domain VOD chỉ cần sửa env. Null khi provider=mux.
+  /// CỐ Ý không tái dùng muxPlaybackId (đang @unique) để không đụng ràng buộc của nhánh Mux.
+  selfHostedKey           String?                     @unique
+  thumbnailUrl            String? // server-written: Mux → https://image.mux.com/{playbackId}/thumbnail.jpg; self-host → poster.jpg tự sinh trên MinIO
+  metadataStatus          TrainingVideoMetadataStatus @default(pending) // readiness source of truth (51); ready iff durationSeconds>0 && muxPlaybackId!=null
+  uploadthingUrl          String?
+  uploadthingFileKey      String?
+  status                  TrainingVideoStatus         @default(draft)
+  isFeatured              Boolean                     @default(false)
+  sortOrder               Int                         @default(0)
+  viewCount               Int                         @default(0)
+  completionCount         Int                         @default(0)
+  createdById             String // admin user id (bare scalar — no FK back-relation for DEMO)
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+  deletedAt               DateTime? // soft-delete
+
+  likeCount Int @default(0) // denormalized — recomputed in-tx = COUNT(active likes) on every like/unlike (D-02, Phase 56)
+
+  rewardCapEnabled Boolean @default(false) // P66 D-05 — trần thưởng/video; mặc định TẮT ⇒ giữ levelReward × hệ-số cũ (tương thích ngược)
+  rewardCapAmount  Int? // P66 D-05 — khi bật ⇒ min(cấp×hệ-số, rewardCapAmount); null khi tắt
+
+  overflowAccrualMultiplier Int? // P69 D-01 — hệ số tích lũy/lượt vượt trần, lưu basis-points (0.01 = 100bp; scale 10000); null/0 = không tích lũy (tương thích ngược)
+
+  isFoundationVideo Boolean @default(false) // Phase 72 — video nền tảng, xem bắt buộc trước khi mở khóa toàn bộ thư viện
+  foundationOrder   Int? // Phase 72 — thứ tự trong nhóm nền tảng; NULL = không sắp xếp
+
+  watchProgress        TrainingVideoWatchProgress[]
+  ratings              TrainingVideoRating[]
+  likes                TrainingVideoLike[]
+  trainingVideoReviews TrainingVideoReview[]
+  comments             TrainingVideoComment[]       @relation("TrainingVideoComments")
+  batchItems           TrainingVideoBatchItem[]     @relation("TrainingVideoBatchItems")
+
+  @@index([status, sortOrder])
+  @@index([category])
+  @@index([deletedAt])
+  @@map("training_videos")
+}
+
+model TrainingVideoWatchProgress {
+  id                    String              @id @default(uuid())
+  userId                String
+  user                  User                @relation("UserTrainingWatchProgress", fields: [userId], references: [id], onDelete: Cascade)
+  videoId               String
+  video                 TrainingVideo       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  status                WatchProgressStatus @default(in_progress)
+  watchedSegments       Json                @default("[]") // merged [start,end] intervals (seconds)
+  coveragePercent       Int                 @default(0)
+  totalWatchedSeconds   Int                 @default(0)
+  sessionCount          Int                 @default(0)
+  firstViewedAt         DateTime            @default(now())
+  lastViewedAt          DateTime            @updatedAt
+  completedAt           DateTime?
+  pointsAwardedAt       DateTime? // idempotent award marker — claimed by the 48-02 updateMany (D-6)
+  pointsAwarded         Int                 @default(0)
+  completionCount       Int                 @default(0) // số lần hoàn thành video này (re-watch sau cooldown +1)
+  nextUnlockAt          DateTime? // mở lại để nhận tiền sau cooldown; null = chưa từng hoàn thành / đã hết làm lạnh
+  cooldownEndNotifiedAt DateTime? // P54 D-01b: marker dedup báo "đã hết làm lạnh" 1 lần/chu kỳ (sweep 54-04 đóng dấu, completion xoá)
+  lastCompletedAt       DateTime? // lần hoàn thành gần nhất
+  frozenUntil           DateTime? // cửa sổ xác nhận hiện diện 30s (leave-reset); trong cửa sổ này không tính tiền
+  watchTokenVersion     Int                 @default(0) // epoch reset — bump khi server zero tiến độ; heartbeat cũ -> STALE_TOKEN
+  metadata              Json?
+
+  @@unique([userId, videoId]) // the idempotency backbone (T-48-02)
+  @@index([userId])
+  @@index([videoId])
+  @@map("training_video_watch_progress")
+}
+
+// ==================== HARD-05 AUDIT LOG (v1.5 Phase 49) ====================
+// Platform-global anti-abuse audit trail: records every award + every
+// forge-attempt event so the operator has abuse visibility (HARD-05).
+// D-5: NO businessId. Deletion-safe by design — userId/videoId are plain
+// indexed strings (NO User/TrainingVideo FK back-relation), matching the
+// minimal technical-activities/audit shape. ID strategy: @default(uuid())
+// to match the Phase 48 training content models above.
+// NOTE: deliberately disjoint from 49-06's TrainingVideoReviewAuditLog
+// (review-workflow events) — two distinct tables, non-overlapping domains.
+
+enum TrainingVideoAuditEvent {
+  award_granted
+  cap_exceeded
+  nonce_fail
+  rate_limited
+  pacing_drop
+  checkpoint_miss
+  session_conflict
+  missing_duration
+  completion_rejected
+  metadata_resynced
+  // ADD (D-11, Phase 55) — exactly 3 new members; the two conflict/reject events already exist above:
+  session_expired
+  lost_focus
+  stale_session_complete
+  // ADD (D-06, Phase 59) — bulk-create batch events; rides this migration so P60's worker needs no second migration:
+  bulk_batch_created
+  bulk_item_failed
+  bulk_item_published
+  // ADD (D-10, Phase 66) — two DISTINCT reward-cap-hit events; disjoint from cap_exceeded (which keeps its 100-completion/day COUNT meaning — COUNT vs VND axis):
+  video_reward_cap_hit
+  daily_reward_cap_hit
+  // ADD (P69) — over-cap accrual lifecycle event stream (ledger tables remain the reconciliation authority):
+  overflow_accrued
+  overflow_disbursed
+  overflow_applied
+  // ADD (Phase 72) — foundation-gate rejection event (fail-closed at any of the 3 watch seams: startSession/heartbeat/completeVideo):
+  foundation_gate_blocked
+}
+
+model TrainingVideoAuditLog {
+  id            String                  @id @default(uuid())
+  userId        String
+  videoId       String? // nullable — a session-conflict/rate-limit event may not be tied to a specific video
+  eventType     TrainingVideoAuditEvent
+  pointsAwarded Int? // set only on award_granted
+  metadata      Json? // sessionId, positionSeconds, todayTotal, cap, reason, nonce-mismatch detail — free-form
+  createdAt     DateTime                @default(now())
+
+  @@index([userId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([videoId])
+  @@map("training_video_audit_logs")
+}
+
+// ==================== MULTI-DEVICE WATCH SESSION (v1.5 Phase 55) ====================
+// D-04/D-05: persisted forensics row for the watch-to-earn session lifecycle.
+// Redis single-active-session lock (P49) STAYS the realtime anti-multi-device gate;
+// this table is (a) the forensics trail and (b) the ownership source for bind-at-complete
+// (D-07). Platform-global (D-5): NO businessId, NO tenant filter. Deletion-safe — plain
+// indexed userId/videoId (NO User/TrainingVideo FK back-relation), like the audit log above.
+// ID strategy: @default(uuid()) to match the Phase 48 training content models.
+// `watchSessionId` is the DB column for the wire/contract `sessionId` value (RESEARCH RQ-1 —
+// the contract field stays `sessionId`; only the DB column is named `watchSessionId`).
+
+enum WatchSessionStatus {
+  playing
+  paused
+  completed
+  expired
+  cancelled
+}
+
+model WatchSession {
+  id                      String             @id @default(uuid())
+  watchSessionId          String             @unique // server-minted uuid; stores the wire `sessionId` value
+  userId                  String
+  videoId                 String
+  userAgent               String? // server-derived from request (FE must NOT send)
+  ipAddress               String? // server-derived from request
+  deviceLabel             String? // parsed from UA server-side
+  deviceId                String? // stable FE-generated id (localStorage key `acta:training-device-id`) — convenience for same-device detection, NOT a secret
+  status                  WatchSessionStatus @default(playing)
+  accumulatedWatchSeconds Int                @default(0)
+  progress                Float              @default(0)
+  startedAt               DateTime           @default(now())
+  lastHeartbeatAt         DateTime           @default(now())
+  endedAt                 DateTime?
+  metadata                Json?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  @@index([userId, videoId])
+  @@index([status, lastHeartbeatAt]) // cron-sweep stale-session scan (D-09/D-10)
+  @@index([watchSessionId])
+  @@map("training_watch_sessions")
+}
+
+// ==================== MEMBER RATING (v1.5 Phase 49 — HARD-08) ====================
+// One rating per member per video — @@unique([userId, videoId]) is the
+// anti-double-rating backbone (T-49-05-A). Platform-global (D-5): NO businessId.
+// ID strategy: @default(uuid()) to match the Phase 48 training content models.
+// FK back-relations on both User (owning side) and TrainingVideo, onDelete:
+// Cascade so a deleted user/video cleans up its ratings. rating range (1..5) is
+// enforced by the DTO @Min/@Max AND a DB CHECK in the migration (T-49-05-F).
+
+model TrainingVideoRating {
+  id        String        @id @default(uuid())
+  videoId   String
+  video     TrainingVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation("UserTrainingVideoRatings", fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int // 1..5 — range enforced by DTO + migration CHECK
+  comment   String? // optional short member note
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  deletedAt DateTime? // soft-delete convention
+
+  @@unique([userId, videoId]) // the anti-double-rating backbone (T-49-05-A)
+  @@index([videoId])
+  @@index([userId])
+  @@map("training_video_ratings")
+}
+
+// ==================== MEMBER LIKE (v1.5 Phase 56 — §4.3) ====================
+// One like per member per video — @@unique([userId, videoId]) is the
+// anti-double-like backbone + idempotency for the POST/DELETE /:id/like
+// endpoints (D-01/D-04). Platform-global (D-5): NO businessId, no tenant filter.
+// 1:1 clone of TrainingVideoRating minus rating/comment. Soft-delete convention
+// (Rating parity) — unlike sets deletedAt; COUNT/isLiked filter deletedAt: null.
+// TrainingVideo.likeCount is recomputed = COUNT(active) in the same tx (D-02).
+// ID strategy: @default(uuid()) to match the Phase 48 training content models.
+
+model TrainingVideoLike {
+  id        String        @id @default(uuid())
+  videoId   String
+  video     TrainingVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation("UserTrainingVideoLikes", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  deletedAt DateTime? // soft-delete convention (Rating parity)
+
+  @@unique([userId, videoId]) // the anti-double-like backbone (D-01/D-04)
+  @@index([videoId])
+  @@index([userId])
+  @@map("training_video_likes")
+}

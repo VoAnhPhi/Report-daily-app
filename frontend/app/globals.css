@@ -1,0 +1,1800 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'react-day-picker/style.css';
+@import 'cropperjs/dist/cropper.css';
+
+@theme {
+  /* Breakpoints */
+  --breakpoint-xs: 30rem; /* 480px */
+  --breakpoint-surface-duo: 33.75rem; /* 540px */
+  --breakpoint-sm: 40rem; /* 640px */
+  --breakpoint-md: 48rem; /* 768px */
+  --breakpoint-lg: 64rem; /* 1024px */
+  --breakpoint-xl: 80rem; /* 1280px */
+  --breakpoint-2xl: 96rem; /* 1536px */
+  --breakpoint-tv: 120rem; /* 1920px */
+
+  /* Colors */
+  --color-background: oklch(1 0 0);
+  --color-foreground: oklch(0.147 0.004 49.25);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.147 0.004 49.25);
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.147 0.004 49.25);
+  --color-primary: oklch(0.216 0.006 56.043);
+  --color-primary-foreground: oklch(0.985 0.001 106.423);
+  --color-secondary: oklch(0.4235 0.1184 256.59);
+  --color-secondary-foreground: oklch(0.216 0.006 56.043);
+  --color-muted: oklch(0.97 0.001 106.424);
+  --color-muted-foreground: oklch(0.553 0.013 58.071);
+  --color-accent: oklch(0.97 0.001 106.424);
+  --color-accent-foreground: oklch(0.216 0.006 56.043);
+  --color-destructive: oklch(0.577 0.245 27.325);
+  --color-destructive-foreground: oklch(0.985 0.001 106.423);
+  --color-border: oklch(0.923 0.003 48.717);
+  --color-input: oklch(0.923 0.003 48.717);
+  --color-ring: oklch(0.709 0.01 56.259);
+
+  /* Sidebar colors */
+  --color-sidebar: oklch(0.985 0.001 106.423);
+  --color-sidebar-foreground: oklch(0.147 0.004 49.25);
+  --color-sidebar-primary: oklch(0.216 0.006 56.043);
+  --color-sidebar-primary-foreground: oklch(0.985 0.001 106.423);
+  --color-sidebar-accent: oklch(0.97 0.001 106.424);
+  --color-sidebar-accent-foreground: oklch(0.216 0.006 56.043);
+  --color-sidebar-border: oklch(0.923 0.003 48.717);
+  --color-sidebar-ring: oklch(0.709 0.01 56.259);
+
+  /* Brand colors */
+  --color-brand-orange: oklch(0.7 0.15 45);
+  --color-brand-orange-foreground: oklch(1 0 0);
+  --color-brand-cream: oklch(0.95 0.02 85);
+  --color-brand-cream-foreground: oklch(0.147 0.004 49.25);
+  --color-gold: oklch(0.8 0.12 85);
+  --color-gold-foreground: oklch(0.147 0.004 49.25);
+
+  /* ── ACTA Feed Design Tokens: 1. Primitives ─────────────────────────────── */
+  /* Brand Palette (Amber-Orange) */
+  --color-brand-50: #fff7ed;
+  --color-brand-100: #ffedd5;
+  --color-brand-200: #fed7aa;
+  --color-brand-300: #fdba74;
+  --color-brand-400: #fb923c;
+  --color-brand-500: #ff6b00; /* ACTA Primary Brand */
+  --color-brand-600: #ea580c;
+  --color-brand-700: #c2410c;
+  --color-brand-800: #9a3412;
+  --color-brand-900: #7c2d12;
+  --color-brand-950: #431407;
+
+  /* Warm Neutral Palette */
+  --color-neutral-0: #ffffff;
+  --color-neutral-25: #fcfbf9;
+  --color-neutral-50: #f7f5f0;
+  --color-neutral-100: #efece4;
+  --color-neutral-200: #e2ddd3;
+  --color-neutral-300: #cfc8bb;
+  --color-neutral-400: #a89f8f;
+  --color-neutral-500: #787063;
+  --color-neutral-600: #575045;
+  --color-neutral-700: #3f3930;
+  --color-neutral-800: #29241e;
+  --color-neutral-900: #181512;
+  --color-neutral-950: #0d0b09;
+
+  /* Semantic Feedback Primitives */
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+  --color-info-500: #0ea5e9;
+  --color-info-600: #0284c7;
+
+  /* Container Token: 1440px Shell for Balanced Desktop */
+  --container-acta-shell: 90rem; /* 1440px */
+
+  /* 4-Tier Elevation Shadows */
+  --shadow-elevation-1: 0 1px 3px 0 rgba(24, 21, 18, 0.04), 0 1px 2px -1px rgba(24, 21, 18, 0.02);
+  --shadow-elevation-2: 0 2px 8px 0 rgba(24, 21, 18, 0.05), 0 1px 3px 0 rgba(24, 21, 18, 0.03);
+  --shadow-elevation-3: 0 10px 24px -4px rgba(24, 21, 18, 0.10), 0 4px 8px -2px rgba(24, 21, 18, 0.06);
+  --shadow-elevation-4: 0 20px 32px -6px rgba(24, 21, 18, 0.16), 0 8px 16px -4px rgba(24, 21, 18, 0.08);
+
+  /* Chart colors */
+  --color-chart-1: oklch(0.646 0.222 41.116);
+  --color-chart-2: oklch(0.6 0.118 184.704);
+  --color-chart-3: oklch(0.398 0.07 227.392);
+  --color-chart-4: oklch(0.828 0.189 84.429);
+  --color-chart-5: oklch(0.769 0.188 70.08);
+
+  /* Modern color palette - Bộ màu 2 (tối giản, hiện đại) */
+  --color-modern-primary: #f57c00; /* Cam sáng */
+  --color-modern-primary-foreground: #ffffff;
+  --color-modern-secondary: #ffca28; /* Vàng nhạt */
+  --color-modern-secondary-foreground: #212121;
+  --color-modern-accent: #43a047; /* Xanh lá fresh */
+  --color-modern-accent-foreground: #ffffff;
+  --color-modern-text: #212121; /* Xám than */
+  --color-modern-background: #ffffff; /* Trắng tinh */
+  /* Additional colors */
+  --color-dark-green: #0d4715;
+  --color-pale-pink: #ebe1d1;
+  --color-prime-orange: #e9762b;
+  /* Radius */
+  --radius-sm: calc(0.625rem - 4px);
+  --radius-md: calc(0.625rem - 2px);
+  --radius-lg: 0.625rem;
+  --radius-xl: calc(0.625rem + 4px);
+
+  /* Phase-65 leaderboard — glowGold: the soft amber glow for the Top-1 podium
+     card and the member gold self-rank card (65-UI-SPEC shadow.glowGold). Maps
+     to the `shadow-glow-gold` utility in Tailwind v4. */
+  --shadow-glow-gold:
+    0 0 0 1px oklch(0.85 0.13 85 / 0.5),
+    0 8px 24px -4px oklch(0.78 0.16 75 / 0.55),
+    0 2px 8px -2px oklch(0.78 0.16 75 / 0.45);
+
+  /* Fonts */
+  --font-lux-serif: var(--font-fraunces), Georgia, serif;
+  --font-lux-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  /* Luxury auth palette (light) — consumed via lux-* utilities on auth screens */
+  --color-lux-bg: #faf8f3;
+  --color-lux-surface: #ffffff;
+  --color-lux-surface-2: #f4f1e9;
+  --color-lux-ink: #161514;
+  --color-lux-ink-2: #3a3732;
+  --color-lux-muted: #6e6a62;
+  --color-lux-muted-2: #a09b91;
+  --color-lux-line: #e7e2d6;
+  --color-lux-line-2: #d8d2c4;
+  --color-lux-line-3: #c1baa9;
+  --color-lux-gold: #a8803d;
+  --color-lux-gold-2: #c99c4f;
+  --color-lux-gold-deep: #6f5322;
+  --color-lux-gold-ink: #ffffff;
+  --color-lux-emerald: #2f7d4f;
+  --color-lux-sky: #3a6ea5;
+  --color-lux-ruby: #a4402e;
+
+  /* ── Không gian làm việc /tasks (ws-*) ─────────────────────────────────
+   * Bảng màu của docs/features/task-workspace-ui/03-bo-mau.md mục 7, bản
+   * "đã chỉnh trợ năng" (chín giá trị dưới ngưỡng WCAG đã được đậm thêm; đối
+   * chiếu ở mục 6). Chỉ dùng cho màn /tasks — không thay token toàn cục.
+   *
+   * Ba luật: (1) bốn màu trạng thái là độc quyền, không mượn cho việc khác;
+   * (2) độ ưu tiên là MỘT dải nhiệt, không phải bốn hue; (3) loại việc mã hoá
+   * bằng KIỂU NÉT viền, không bằng màu.
+   * Khối tối nằm ở `.dark` bên dưới — repo dùng next-themes attribute='class'.
+   */
+
+  /* Nền & chữ */
+  --color-ws-ground: #f7f7f5;
+  --color-ws-surface: #ffffff;
+  --color-ws-surface-alt: #fafaf8;
+  --color-ws-surface-sunken: #f2f2ef;
+  --color-ws-line: #e8e8e4;
+  --color-ws-line-soft: #f0f0ec;
+  --color-ws-line-strong: #949691;
+
+  /* ── Thang viền: ba cấp, chọn theo VAI TRÒ chứ không theo cảm giác ──────
+   *
+   *   cấp 0 — KHÔNG viền, nền `ws-surface-sunken`
+   *           Nhãn tĩnh: chip mã việc, chip ngày, bộ đếm. Nhãn không bấm được
+   *           thì không cần đường bao; nền chìm đã tách nó khỏi `ws-surface`.
+   *
+   *   cấp 1 — `ws-line` (+ nền `ws-surface-alt` nếu bấm được)
+   *           Mặc định của gần như mọi thứ: thẻ, khung, tấm, nút phụ, chip
+   *           lọc, cụm chuyển màn. Với thứ bấm được, NỀN là tín hiệu chính,
+   *           viền chỉ còn nhiệm vụ vẽ hình.
+   *
+   *   cấp 2 — `ws-line-strong` (3:1)
+   *           CHỈ: ô nhập text, viền trái loại việc, khung nét đứt, và trạng
+   *           thái hover/focus. Với ô nhập, đường bao là thứ DUY NHẤT báo có
+   *           control ở đó nên phải đạt 3:1 (WCAG 1.4.11) — chip và nút phụ
+   *           thì không, vì chúng đã có nền và chữ riêng.
+   *
+   * Vì sao phải ghi ra: cấp 2 từng bị dùng cho cả chip lẫn nút phụ, nên một
+   * hàng công cụ có tới năm đường 3:1 cạnh nhau và một câu trả lời báo cáo có
+   * hàng chục chip viền đậm — mắt đọc thành lưới ô, chữ bị át. Muốn nhấn một
+   * phần tử thì đổi NỀN, đừng đổi độ đậm của viền. */
+  --color-ws-ink: #16171a;
+  --color-ws-ink-soft: #54565a;
+  /* #71747a → #6b6e74 (25/08/2026). Bản cũ TRƯỢT chuẩn AA 4.5:1 trên cả ba nền
+   * nhạt mà nó đứng lên nhiều nhất: 4.48 trên `surface-alt`, 4.37 trên `ground`,
+   * 4.18 trên `surface-sunken`. Chỉ qua được trên `surface` trắng (4.69).
+   * Bản mới: 5.11 / 4.77 / 4.56 / 4.89 — qua cả bốn.
+   * Giữ nguyên độ lệch hue của bản cũ (lục +3, lam +9 so với đỏ), chỉ hạ độ
+   * sáng 6 bậc, nên khác biệt không nhìn ra được nhưng đủ qua ngưỡng.
+   * Nhánh tối KHÔNG đổi: #93979d đã ở 5.36-6.39 trên bốn nền tối. */
+  --color-ws-ink-faint: #6b6e74;
+  /* KHÔNG làm tối tiếp cái này để "cho qua AA". Nó ĐÃ bị làm tối một lần
+   * (#a8aaad → #83868b, đợt chỉnh trợ năng), và hạ thêm tới ngưỡng 4.5 là đẩy
+   * nó xuống chính vùng của `ws-ink-faint` ngay trên — đổi một va chạm màu lấy
+   * một va chạm khác, đúng thứ khối `ws-open-*` bên dưới sinh ra để gỡ.
+   * Cách đúng: chỗ nào dùng token này cho chữ mang THÔNG TIN thì đổi sang
+   * `ws-ink-faint`; giữ token này cho icon rỗng và viền mờ. Xem
+   * `daily-report-history.tsx` (dải thứ T2…CN đã đổi ngày 25/08/2026). */
+  --color-ws-ink-ghost: #83868b;
+
+  /* Trục nhấn — lục dành cho liên kết, icon nhấn và thanh tiến độ.
+   * Nút chính dùng `ws-solid` (đen) để lục không đụng nghĩa "Hoàn thành". */
+  --color-ws-accent: #2e7d57;
+  --color-ws-accent-hover: #1f5c3f;
+  --color-ws-accent-bg: #e7f4eb;
+  --color-ws-solid: #16171a;
+  --color-ws-solid-ink: #ffffff;
+  --color-ws-focus: #1f5c3f;
+  /* Lớp phủ sau hộp thoại. 0.28 chứ không phải 0.38, và KHÔNG phải đen thuần:
+   * sắc 20/20/18 hơi ngả nâu nên nó đọc ra như bóng đổ chứ không như một tấm
+   * màn. Cùng với `backdrop-blur` ở primitive, chừng này đủ tách hộp thoại
+   * khỏi nền mà không nhấn chìm trang phía sau — quan trọng vì màn /tasks
+   * thường mở hộp thoại chồng hộp thoại (chọn nhóm → chọn thành viên), và hai
+   * lớp 0.38 cộng lại thành ~0.62, gần như đen kịt. */
+  --color-ws-overlay: rgb(20 20 18 / 0.28);
+
+  /* Đỏ NGUY HIỂM — nút xóa, thông báo lỗi. Đây là màu VAI TRÒ GIAO DIỆN, không
+   * phải màu trạng thái việc, nên nó dùng ĐÚNG đỏ của hệ thống
+   * (`--color-destructive` ở khối @theme) chứ không phải một sắc đỏ riêng: nút
+   * xóa trong /tasks phải đọc y như nút xóa ở phần còn lại của acta-social.
+   * KHÔNG gộp với `ws-void-*` (chip "Đã hủy") hay `ws-prio-urgent` (chip "Khẩn
+   * cấp"). Ba thứ này cùng họ đỏ nhưng khác vai trò — gộp lại là mất một kênh
+   * phân biệt, người dùng không còn nhìn màu mà đoán được đang xem lỗi hay xem
+   * trạng thái việc. */
+  --color-ws-danger: oklch(0.577 0.245 27.325);
+
+  /* Bộ ĐẾM — chip số trên tab và trên mục điều hướng ĐANG CHỌN. Đây là màu của
+   * một CON SỐ ("ở đây có bao nhiêu"), không phải màu trạng thái việc ("việc
+   * đang ở bước nào"), nên nó KHÔNG lấy `ws-prio-high` dù cùng họ vàng: chip ưu
+   * tiên có CHỮ trên nền be gần như xám, chip đếm là hình tròn chỉ chứa số trên
+   * nền vàng rõ — khác cả hình lẫn độ bão hoà nên mắt không gộp hai thứ.
+   * Số cần chú ý (quá hạn, chờ xác nhận) vẫn dùng `ws-danger`, không dùng bộ
+   * đếm này. Chữ trên nền chip đạt 6.6:1. */
+  --color-ws-count-bg: #f6e7c3;
+  --color-ws-count-fg: #6b4906;
+
+  /* Trạng thái — pending | progress | done | void(đã hủy).
+   * -fg: chữ+icon chip · -bg: nền chip · -edge: thanh tiến độ, chấm chỉ báo */
+  --color-ws-pending-fg: #5c5f63;
+  --color-ws-pending-bg: #f0f0ec;
+  --color-ws-pending-edge: #83868b;
+  --color-ws-progress-fg: #1d4ed8;
+  --color-ws-progress-bg: #e9f0fe;
+  --color-ws-progress-edge: #2563eb;
+  --color-ws-done-fg: #166534;
+  --color-ws-done-bg: #e7f4eb;
+  --color-ws-done-edge: #2e7d57;
+  --color-ws-void-fg: #8c3a2e;
+  --color-ws-void-bg: #f6ecea;
+  --color-ws-void-edge: #a9503f;
+
+  /* ĐANG MỞ, CHƯA NỘP — chấm trạng thái của Báo cáo hằng ngày. KHÔNG phải
+   * trạng thái thứ năm của việc (luật 1 vẫn giữ bốn màu pending/progress/done/
+   * void): đây là vòng đời của một BẢN BÁO CÁO — chưa có bản / đang mở / đã nộp
+   * / lỡ hạn — nên nó cần token riêng.
+   * Vì sao phải thêm màu: trước đây nhánh này mượn `ws-pending-edge`, còn
+   * "chưa có bản" dùng `ws-ink-ghost`. Sau đợt chỉnh trợ năng hai token ấy
+   * TRÙNG NHAU tuyệt đối — cùng #83868b ở khối sáng này, cùng #7e8186 ở khối
+   * tối, cả bốn dòng khai đều nằm trong chính file này — nên hai chấm không
+   * phải "khó phân biệt" mà là KHÔNG THỂ phân biệt: chúng vẽ ra đúng một màu,
+   * người dùng không biết mình còn nợ bản nào. (#a8aaad là bản GỐC của
+   * `ws-ink-ghost` trước đợt chỉnh trợ năng, nay chỉ còn trong tài liệu — mục 6
+   * của `docs/features/task-workspace-ui/03-bo-mau.md` — không còn trong code.)
+   * Vì sao là VÀNG chứ không phải hue mới: hổ phách đã có trong bảng (dải ưu
+   * tiên), nên dùng lại HỌ màu này giữ nguyên số hue của giao diện. Nhưng
+   * KHÔNG dùng lại token `ws-prio-high` / `ws-count-fg` — sai vai trò, và mượn
+   * token thì lần sau đổi độ ưu tiên là chấm báo cáo đổi theo.
+   * #b0770a đạt 3.8:1 trên `ws-surface` và 3.7:1 trên `ws-surface-alt` (ngưỡng
+   * cho vật thể đồ hoạ là 3:1). Vàng sáng hơn thì rơi xuống dưới ngưỡng trên
+   * nền trắng, nên phải là hổ phách trầm. Hue 39° — cách `ws-void-edge` (10°)
+   * đủ xa để không đọc thành cùng một chấm nâu đỏ. */
+  --color-ws-open-edge: #b0770a;
+
+  /* Độ ưu tiên — dải nhiệt bốn bậc. Khẩn cấp là chip nền đặc DUY NHẤT của màn. */
+  --color-ws-prio-low: #71747a;
+  --color-ws-prio-normal: #54565a;
+  --color-ws-prio-high: #9a5b08;
+  --color-ws-prio-high-bg: #f7efe2;
+  --color-ws-prio-urgent: #d0442b;
+  --color-ws-prio-urgent-ink: #ffffff;
+
+  /* Avatar — ngoại lệ có chủ ý của luật đếm hue (danh tính, không phải trạng thái) */
+  --color-ws-ava-a-bg: #dde3df;
+  --color-ws-ava-a-fg: #256848;
+  --color-ws-ava-b-bg: #e3dcec;
+  --color-ws-ava-b-fg: #6d4fa0;
+  --color-ws-ava-c-bg: #efe1d3;
+  --color-ws-ava-c-fg: #844e1c;
+  --color-ws-ava-d-bg: #dce4ef;
+  --color-ws-ava-d-fg: #2b5fa8;
+  --color-ws-ava-e-bg: #ededea;
+  --color-ws-ava-e-fg: #54565a;
+
+  /* Bốn bậc bóng, không hơn. Giá trị lấy từ trang hệ thống thiết kế
+   * (demo/he-thong-thiet-ke.html) — bản chạy được, không phải bản mô tả trong
+   * 02-nguyen-tac-thiet-ke.md. Bóng ám sắc nền (20 20 18) chứ không phải đen
+   * thuần: bóng đen thuần trên nền ấm đọc thành vết bẩn. */
+  --shadow-ws-rest: 0 1px 2px rgb(20 20 18 / 0.04);
+  --shadow-ws-raised: 0 6px 18px rgb(20 20 18 / 0.07);
+  --shadow-ws-lifted: 0 14px 34px rgb(20 20 18 / 0.16);
+  /* Panel trượt phải — bóng hắt sang trái, không phải xuống dưới. */
+  --shadow-ws-panel: -8px 0 28px rgb(20 20 18 / 0.06);
+
+  /* ── Bán kính ──────────────────────────────────────────────────────────
+   * Một dốc giảm dần, mỗi bậc có chủ. Trước khi có bảng này màn /tasks dùng
+   * 19 kiểu bo khác nhau vì không có chỗ nào chốt. Đặt tên theo VAI TRÒ chứ
+   * không theo cỡ (`card` chứ không `lg`) để chọn đúng mà không phải tra số.
+   */
+  --radius-ws-frame: 16px; /* khung nội dung, thân cột, modal rộng */
+  --radius-ws-card: 14px; /* thẻ việc, panel chi tiết */
+  --radius-ws-block: 12px; /* đầu cột, ô "Thêm việc", hộp phân đoạn, toast */
+  --radius-ws-control: 11px; /* nút, ô nhập, nút icon */
+  --radius-ws-nav: 10px; /* mục điều hướng cột trái, vùng thả tệp */
+  --radius-ws-pill: 9px; /* mục phân đoạn, chip "Chuyển sang", nút đóng */
+  --radius-ws-chip: 8px; /* chip trạng thái, chip mã, chip hạn */
+  --radius-ws-tag: 7px; /* chip ưu tiên Cao/Khẩn cấp, hộp icon trên thẻ */
+  --radius-ws-check: 6px; /* ô tick, nút ••• nhỏ, vòng focus */
+  --radius-ws-bar: 3px; /* thanh tiến độ */
+
+  /* ── Cỡ chữ ────────────────────────────────────────────────────────────
+   * Đúng 12 bậc. Thang lẻ nửa pixel (13.5 / 12.5 / 11.5) là CÓ CHỦ Ý —
+   * 03-bo-mau.md mục 9: đó là thứ làm bản mẫu trông chặt hơn thang chẵn.
+   * Sàn cứng 10px: dưới ngưỡng đó không đọc chắc được.
+   */
+  --text-ws-h1: 19px; /* tiêu đề màn */
+  --text-ws-h2: 15.5px; /* tiêu đề khối */
+  --text-ws-panel-title: 21px; /* tên việc trong panel chi tiết */
+  --text-ws-card-title: 14px; /* tên việc trên thẻ */
+  --text-ws-body: 13.5px; /* chữ thân, ô nhập, tên việc ở bảng tính */
+  --text-ws-cell: 13px; /* ô dữ liệu bảng tính */
+  --text-ws-meta: 12.5px; /* chữ phụ, nhãn thuộc tính, bộ đếm */
+  --text-ws-chip: 12px; /* chip trạng thái cỡ thường */
+  --text-ws-chip-sm: 11.5px; /* chip nhỏ, ưu tiên, tiêu đề cột bảng */
+  --text-ws-micro: 11px; /* mã việc, ô tick */
+  --text-ws-nano: 10.5px; /* nhãn ngày trong dòng thời gian */
+  --text-ws-floor: 10px; /* SÀN — chữ tắt avatar. Không đi thấp hơn */
+
+  /* ── Khoảng cách ───────────────────────────────────────────────────────
+   * Thang của bản mẫu, KHÔNG phải thang 4/8/12 trong 02-nguyen-tac-thiet-ke.md.
+   * Cố ý lệch: giữ nhịp của thiết kế quan trọng hơn giữ một thang tròn trên
+   * giấy. Đặt tên các mốc lẻ để chúng không phải rải thành p-[7px] khắp nơi.
+   */
+  --spacing-ws-1: 2px; /* khe icon–chữ trong chip */
+  --spacing-ws-2: 4px; /* padding trong hộp phân đoạn */
+  --spacing-ws-3: 6px; /* khe giữa hai chip */
+  --spacing-ws-4: 7px; /* khe trong hàng meta của thẻ */
+  --spacing-ws-5: 8px; /* padding thân cột; khe thẻ ở mật độ gọn */
+  --spacing-ws-6: 10px; /* khe trong hàng chân thẻ */
+  --spacing-ws-7: 11px; /* khe nhãn–giá trị trong panel */
+  --spacing-ws-8: 12px; /* khe giữa hai thẻ trong cột */
+  --spacing-ws-9: 14px; /* padding thẻ ở mật độ gọn */
+  --spacing-ws-10: 15px; /* padding thẻ ở mật độ thoải mái */
+  --spacing-ws-11: 16px; /* khe giữa hai cột; khe khối trong panel */
+  --spacing-ws-12: 18px; /* nhịp dọc panel */
+  --spacing-ws-13: 20px; /* padding khung nội dung */
+  --spacing-ws-14: 22px; /* padding panel */
+  --spacing-ws-15: 26px; /* lề trang */
+
+  /* ── Chuyển động ───────────────────────────────────────────────────────
+   * Chuyển động chỉ dùng khi nó trả lời một câu hỏi của người dùng: "cái vừa
+   * rồi đi đâu?", "hệ thống có nhận thao tác không?". Không trang trí.
+   */
+  --ease-ws-settle: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --duration-ws-tint: 120ms; /* đổi màu khi rê chuột, focus */
+  --duration-ws-lift: 160ms; /* thẻ nhấc lên / hạ xuống */
+  --duration-ws-modal: 180ms; /* modal mở, panel trượt vào */
+  --duration-ws-revert: 220ms; /* thẻ bay về chỗ cũ khi thả sai */
+}
+
+@variant dark (&:is(.dark *));
+
+/* Luxury auth background: theme-aware photo (light_background.jpg) with the
+ * gold/blue glow washes layered on top for the luxury treatment. Dark variant
+ * swaps to dark_background.jpg via the `.dark .luxury-bg` override below. */
+@utility luxury-bg {
+  background:
+    radial-gradient(
+      1100px 640px at 80% -12%,
+      color-mix(in srgb, var(--color-lux-gold) 16%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      820px 560px at -8% 112%,
+      color-mix(in srgb, #427abf 10%, transparent),
+      transparent 60%
+    ),
+    url('/light_background.jpg') center center / cover no-repeat,
+    var(--color-lux-bg);
+}
+
+.dark .luxury-bg {
+  background:
+    radial-gradient(
+      1100px 640px at 80% -12%,
+      color-mix(in srgb, var(--color-lux-gold) 16%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      820px 560px at -8% 112%,
+      color-mix(in srgb, #427abf 10%, transparent),
+      transparent 60%
+    ),
+    url('/dark_background.jpg') center center / cover no-repeat,
+    var(--color-lux-bg);
+}
+
+/* Dark theme overrides */
+.dark {
+  --color-background: oklch(0.147 0.004 49.25);
+  --color-foreground: oklch(0.985 0.001 106.423);
+  --color-card: oklch(0.216 0.006 56.043);
+  --color-card-foreground: oklch(0.985 0.001 106.423);
+  --color-popover: oklch(0.216 0.006 56.043);
+  --color-popover-foreground: oklch(0.985 0.001 106.423);
+  --color-primary: oklch(0.923 0.003 48.717);
+  --color-primary-foreground: oklch(0.216 0.006 56.043);
+  --color-secondary: oklch(0.4235 0.1184 256.59);
+  --color-secondary-foreground: oklch(0.985 0.001 106.423);
+  --color-muted: oklch(0.268 0.007 34.298);
+  --color-muted-foreground: oklch(0.709 0.01 56.259);
+  --color-accent: oklch(0.268 0.007 34.298);
+  --color-accent-foreground: oklch(0.985 0.001 106.423);
+  --color-destructive: oklch(0.704 0.191 22.216);
+  --color-border: oklch(1 0 0 / 10%);
+  --color-input: oklch(1 0 0 / 15%);
+  --color-ring: oklch(0.553 0.013 58.071);
+
+  --color-sidebar: oklch(0.216 0.006 56.043);
+  --color-sidebar-foreground: oklch(0.985 0.001 106.423);
+  --color-sidebar-primary: oklch(0.488 0.243 264.376);
+  --color-sidebar-primary-foreground: oklch(0.985 0.001 106.423);
+  --color-sidebar-accent: oklch(0.268 0.007 34.298);
+  --color-sidebar-accent-foreground: oklch(0.985 0.001 106.423);
+  --color-sidebar-border: oklch(1 0 0 / 10%);
+  --color-sidebar-ring: oklch(0.553 0.013 58.071);
+
+  --color-brand-cream: oklch(0.3 0.05 85);
+  --color-brand-cream-foreground: oklch(0.9 0.02 85);
+  --color-gold: oklch(0.6 0.1 85);
+  --color-gold-foreground: oklch(0.9 0.02 85);
+  /* Additional colors */
+  --color-dark-green: #0d4715;
+  --color-pale-pink: #ebe1d1;
+  --color-prime-orange: #e9762b;
+  /* Modern color palette - Dark mode */
+  --color-modern-primary: #ff9800; /* Cam sáng hơn cho dark mode */
+  --color-modern-primary-foreground: #000000;
+  --color-modern-secondary: #ffd54f; /* Vàng sáng hơn cho dark mode */
+  --color-modern-secondary-foreground: #000000;
+  --color-modern-accent: #66bb6a; /* Xanh lá sáng hơn cho dark mode */
+  --color-modern-accent-foreground: #000000;
+  --color-modern-text: #ffffff; /* Trắng cho dark mode */
+  --color-modern-background: #121212; /* Đen tối cho dark mode */
+
+  /* Luxury auth palette (dark) */
+  --color-lux-bg: #070707;
+  --color-lux-surface: #131313;
+  --color-lux-surface-2: #1a1a1a;
+  --color-lux-ink: #faf8f5;
+  --color-lux-ink-2: #d4cfc6;
+  --color-lux-muted: #8a857d;
+  --color-lux-muted-2: #58544e;
+  --color-lux-line: #242322;
+  --color-lux-line-2: #35332f;
+  --color-lux-line-3: #4a4741;
+  --color-lux-gold: #d4af60;
+  --color-lux-gold-2: #f0cc7a;
+  --color-lux-gold-deep: #9a7b35;
+  --color-lux-gold-ink: #0b0b0b;
+  --color-lux-emerald: #4fb28a;
+  --color-lux-sky: #6b9de0;
+  --color-lux-ruby: #d76659;
+
+  /* ── Không gian làm việc /tasks (ws-*) — chế độ tối ─────────────────────
+   * docs/features/task-workspace-ui/03-bo-mau.md mục 5. Bóng đen trên nền đen
+   * không nhìn thấy, nên ở chế độ tối ranh giới đến từ `ws-line`, không từ bóng.
+   */
+  --color-ws-ground: #131417;
+  --color-ws-surface: #1a1c20;
+  --color-ws-surface-alt: #202329;
+  --color-ws-surface-sunken: #101216;
+  --color-ws-line: #2a2d33;
+  --color-ws-line-soft: #23262b;
+  --color-ws-line-strong: #727780;
+  --color-ws-ink: #e8eaed;
+  --color-ws-ink-soft: #a8abb0;
+  --color-ws-ink-faint: #93979d;
+  --color-ws-ink-ghost: #7e8186;
+
+  --color-ws-accent: #4fb58a;
+  --color-ws-accent-hover: #6ecba3;
+  --color-ws-accent-bg: #16281f;
+  --color-ws-solid: #e8eaed;
+  --color-ws-solid-ink: #131417;
+  --color-ws-focus: #4fb58a;
+  /* Chế độ tối cần đậm hơn chế độ sáng để tách được lớp — nền vốn đã tối, một
+   * lớp phủ nhạt sẽ không đọc ra là lớp phủ. Vẫn hạ từ 0.55 xuống 0.45. */
+  --color-ws-overlay: rgb(0 0 0 / 0.45);
+
+  /* Đỏ nguy hiểm ở chế độ tối: cũng lấy đúng giá trị của `--color-destructive`
+   * trong khối `.dark` chung, để /tasks và phần còn lại của acta-social không
+   * bao giờ lệch nhau một sắc đỏ. Vẫn SÁNG hơn nền vì `destructive-foreground`
+   * là `ws-surface` (#1a1c20) — chữ tối nằm trên nút đỏ. */
+  --color-ws-danger: oklch(0.704 0.191 22.216);
+
+  /* Bộ đếm ở chế độ tối: cùng vai trò, nền sáng hơn hẳn `ws-prio-high-bg`
+   * (#2a2115) để chip đếm và chip "Ưu tiên cao" không đọc thành một trên nền
+   * đen. Chữ trên nền chip đạt 7.6:1. */
+  --color-ws-count-bg: #3a2f14;
+  --color-ws-count-fg: #e6c072;
+
+  --color-ws-pending-fg: #b6b9be;
+  --color-ws-pending-bg: #26282d;
+  --color-ws-pending-edge: #7e8186;
+  --color-ws-progress-fg: #8ab4ff;
+  --color-ws-progress-bg: #16203a;
+  --color-ws-progress-edge: #5b8def;
+  --color-ws-done-fg: #5fcb99;
+  --color-ws-done-bg: #12291f;
+  --color-ws-done-edge: #3fa97a;
+  --color-ws-void-fg: #e39385;
+  --color-ws-void-bg: #2e1d1a;
+  --color-ws-void-edge: #c06b58;
+
+  /* "Đang mở, chưa nộp" ở chế độ tối: cùng hue 40° với nhánh sáng nên token
+   * đọc ra là MỘT màu ở cả hai chế độ, chỉ đảo độ sáng. 7.3:1 trên `ws-surface`
+   * và 6.8:1 trên `ws-surface-alt` — ngang tầm `ws-prio-high` tối (7.0) chứ
+   * không chói hơn, vì trên nền đen một chấm vàng bão hoà quá dễ thành điểm
+   * sáng duy nhất của cả cột. */
+  --color-ws-open-edge: #d9a02e;
+
+  --color-ws-prio-low: #93979d;
+  --color-ws-prio-normal: #c9ccd1;
+  --color-ws-prio-high: #d9a441;
+  --color-ws-prio-high-bg: #2a2115;
+  --color-ws-prio-urgent: #f0806a;
+  --color-ws-prio-urgent-ink: #131417;
+
+  --color-ws-ava-a-bg: #16281f;
+  --color-ws-ava-a-fg: #5fcb99;
+  --color-ws-ava-b-bg: #241e33;
+  --color-ws-ava-b-fg: #b49be0;
+  --color-ws-ava-c-bg: #2e241a;
+  --color-ws-ava-c-fg: #e0a96b;
+  --color-ws-ava-d-bg: #16203a;
+  --color-ws-ava-d-fg: #8ab4ff;
+  --color-ws-ava-e-bg: #26282d;
+  --color-ws-ava-e-fg: #a8abb0;
+
+  /* Cùng hình dạng, đậm hơn nhiều — nền tối nuốt bóng nhạt. Ranh giới ở chế
+   * độ tối chủ yếu đến từ `ws-line`, bóng chỉ còn nhiệm vụ tạo độ cao. */
+  --shadow-ws-rest: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-ws-raised: 0 6px 18px rgb(0 0 0 / 0.45);
+  --shadow-ws-lifted: 0 14px 34px rgb(0 0 0 / 0.6);
+  --shadow-ws-panel: -8px 0 28px rgb(0 0 0 / 0.4);
+}
+
+/* ── Lớp bọc Không gian làm việc ────────────────────────────────────────────
+ * Trỏ token ngữ nghĩa của shadcn sang bảng màu `ws-*` TRONG PHẠM VI màn
+ * /tasks. Nhờ vậy Dialog, Button, Input, Tabs, Select, Popover… đổi da mà
+ * không phải sửa tay từng file — và các trang khác của acta-social không đổi
+ * một pixel nào.
+ *
+ * Chạy được là vì Tailwind v4 ở repo này sinh utility THAM CHIẾU biến
+ * (`.bg-primary{background-color:var(--color-primary)}`), đúng cơ chế khối
+ * `.dark` đang dùng.
+ *
+ * Vế phải là `var(--color-ws-*)` chứ không phải hex, nên chế độ tối tự theo —
+ * KHÔNG cần khối `.dark .ws-scope` riêng.
+ *
+ * BẪY: Radix render Dialog/Dropdown/Popover/Sheet ra `document.body`, tức là
+ * NGOÀI lớp bọc này. Mỗi portal của màn /tasks phải tự gắn `ws-scope` vào
+ * content của nó, nếu không modal sẽ giữ nguyên giao diện cũ.
+ */
+.ws-scope {
+  --color-background: var(--color-ws-surface);
+  --color-foreground: var(--color-ws-ink);
+  --color-card: var(--color-ws-surface);
+  --color-card-foreground: var(--color-ws-ink);
+  --color-popover: var(--color-ws-surface);
+  --color-popover-foreground: var(--color-ws-ink);
+
+  /* Nút chính là ĐEN, không phải màu nhấn — để lục không bao giờ đụng nghĩa
+   * "Hoàn thành". Lục dành cho liên kết, icon nhấn và thanh tiến độ. */
+  --color-primary: var(--color-ws-solid);
+  --color-primary-foreground: var(--color-ws-solid-ink);
+  --color-secondary: var(--color-ws-surface-alt);
+  --color-secondary-foreground: var(--color-ws-ink);
+
+  --color-muted: var(--color-ws-surface-alt);
+  --color-muted-foreground: var(--color-ws-ink-faint);
+  --color-accent: var(--color-ws-surface-alt);
+  --color-accent-foreground: var(--color-ws-ink);
+
+  /* Trỏ vào `ws-danger` chứ KHÔNG phải `ws-void-fg`. `ws-void-*` là màu của
+   * trạng thái "Đã hủy"; dùng nó cho nút xóa là trộn hai nghĩa vào một màu, và
+   * làm đỏ trong /tasks lệch hẳn khỏi đỏ của phần còn lại của acta-social. */
+  --color-destructive: var(--color-ws-danger);
+  --color-destructive-foreground: var(--color-ws-surface);
+
+  --color-border: var(--color-ws-line);
+  /* Ô nhập lấy CÙNG viền với mọi thứ khác (`ws-line`), không phải `ws-line-strong`.
+   * Bản trước dùng cấp 2 (3:1, WCAG 1.4.11) nên viền ô nhập trong /tasks đậm hơn
+   * hẳn phần còn lại của acta-social — đọc thành hai hệ giao diện khác nhau.
+   * Đánh đổi đã biết: tương phản viền ô nhập nay bằng token chung của app,
+   * dưới 3:1; nếu quay lại chuẩn tiếp cận thì phải nâng cho CẢ app, không
+   * riêng màn này. */
+  --color-input: var(--color-ws-line);
+  --color-ring: var(--color-ws-focus);
+
+  /* Bo góc của primitive theo thang ws: `rounded-md` của shadcn thành 11px
+   * (cỡ nút/ô nhập), `rounded-lg` thành 12px, `rounded-xl` thành 16px. */
+  --radius-sm: var(--radius-ws-chip);
+  --radius-md: var(--radius-ws-control);
+  --radius-lg: var(--radius-ws-block);
+  --radius-xl: var(--radius-ws-frame);
+}
+
+/* Base styles */
+html,
+body,
+:root {
+  height: 100%;
+}
+
+/* Chống nhảy/giật cuộn về đầu trang khi mở bất kỳ modal / dialog / drawer nào.
+ * react-remove-scroll chèn style tag vào runtime với `body[data-scroll-locked] { overflow: hidden !important; }`
+ * (specificity: 0-1-1). Ta dùng specificity 0-2-1 và 0-2-2 để luôn thắng cascade. */
+html body[data-scroll-locked],
+html:root body[data-scroll-locked],
+body[data-scroll-locked][data-scroll-locked] {
+  overflow: visible !important;
+  height: auto !important;
+  min-height: 100% !important;
+  position: static !important;
+  padding-right: 0 !important;
+  margin-right: 0 !important;
+}
+
+html[data-scroll-locked],
+html:has(body[data-scroll-locked]) {
+  overflow: visible !important;
+  height: auto !important;
+  min-height: 100% !important;
+}
+
+body {
+  background: #ffffff;
+  color: #172033;
+}
+
+.dark body {
+  background: #0f141b;
+  color: #f4f7fb;
+}
+
+/* ═══ THẺ THÀNH TÍCH — TRUNG HOÀ MÀU CHO BỘ CHỤP ẢNH ═══════════════════════
+ *
+ * Vì sao có khối này: `@layer base { * { @apply border-border } }` (cuối tệp)
+ * áp `border-color: var(--color-border)` lên MỌI phần tử trong tài liệu, mà
+ * `--color-border` khai bằng `oklch()` ở `@theme` (dòng ~34) và `.dark`
+ * (~444). html2canvas 1.4.1 chỉ hiểu hsl/hsla/rgb/rgba và NÉM khi gặp hàm màu
+ * lạ, nên nút "Chia sẻ dưới dạng bài viết" của Thẻ thành tích chết ngay ở
+ * phần tử đầu tiên nó quét.
+ *
+ * ⚠ KHÔNG chữa được bằng cách đặt `color` lên khung thẻ: `border-color` KHÔNG
+ * KẾ THỪA, và luật `*` áp thẳng lên từng phần tử. Đo trên Chromium 147 với
+ * CSS dựng thật: đặt `color` hạ 32 → 20 vi phạm, vẫn hỏng; luật dưới đây đưa
+ * về 0 và html2canvas ra canvas 1240×1754.
+ *
+ * ⚠ CỐ Ý ĐỂ NGOÀI MỌI `@layer` — đúng cùng lý do khối `body` ngay bên trên
+ * nằm ngoài layer: quy tắc không-layer thắng mọi quy tắc trong layer, bất kể
+ * độ đặc hiệu. Đưa nó vào `@layer base` là nó thua chính luật `*` nó đang sửa.
+ *
+ * ⚠ Giá trị chỉ là MÀU MA. Không phần tử nào trong thẻ đặt `border-style`
+ * hay `border-width` qua lớp tiện ích, nên những đường viền này không bao giờ
+ * được vẽ; còn viền THẬT của thẻ (`border: 2px solid #D9B45B` ở thân thẻ) đi
+ * bằng `style` nội tuyến nên vẫn thắng luật này. Đổi số ở đây không đổi một
+ * điểm ảnh nào trên màn hình — nó chỉ đổi thứ html2canvas đọc được.
+ *
+ * Cổng canh: `node scripts/kiem-chup-the-tren-trinh-duyet.mjs`. */
+.the-thanh-tich-khung,
+.the-thanh-tich-khung * {
+  border-color: #e2ddd3;
+}
+
+/* ACTA Warm Social — semantic theme tokens (light) */
+:root {
+  /* ── ACTA Feed Design Tokens: 2. Semantic Layer (Light) ───────────────── */
+  --surface-page: #F8F7F3;
+  --surface-card: var(--color-neutral-0);
+  --surface-sunken: var(--color-neutral-50);
+  --surface-hover: var(--color-neutral-100);
+  --surface-brand-subtle: var(--color-brand-50);
+
+  --fg-primary: var(--color-neutral-900);
+  --fg-secondary: var(--color-neutral-600);
+  --fg-muted: var(--color-neutral-400);
+  --fg-brand: var(--color-brand-600);
+  --fg-on-action: #ffffff;
+
+  --border-subtle: var(--color-neutral-200);
+  --border-default: var(--color-neutral-300);
+  --border-strong: var(--color-neutral-400);
+  --border-brand: var(--color-brand-300);
+
+  --action-primary: var(--color-brand-500);
+  --action-primary-hover: var(--color-brand-600);
+  --action-primary-active: var(--color-brand-700);
+  --focus-ring: var(--color-brand-600);
+
+  --feedback-success: #047857;
+  --feedback-warning: var(--color-warning-600);
+  --feedback-danger: var(--color-danger-600);
+  --feedback-info: var(--color-info-600);
+
+  /* Legacy semantic compatibility variables */
+  --canvas: var(--surface-page);
+  --surface: var(--surface-card);
+  --surface-muted: var(--surface-sunken);
+  --surface-elevated: var(--surface-card);
+  --surface-warm: var(--surface-brand-subtle);
+  --text-primary: var(--fg-primary);
+  --text-secondary: var(--fg-secondary);
+  --text-muted: var(--fg-muted);
+  --border: var(--border-subtle);
+  --divider: var(--border-default);
+
+  --brand-primary: var(--action-primary);
+  --brand-primary-soft: var(--surface-brand-subtle);
+  --brand-primary-foreground: var(--fg-on-action);
+
+  --color-member: #7c3aed;
+  --color-member-soft: #f5f0ff;
+  --color-success: var(--feedback-success);
+  --color-success-soft: #ecfdf5;
+  --color-reward: var(--feedback-warning);
+  --color-danger: var(--feedback-danger);
+}
+
+.dark {
+  /* ── ACTA Feed Design Tokens: 2. Semantic Layer (Dark) ────────────────── */
+  --surface-page: var(--color-neutral-950);
+  --surface-card: var(--color-neutral-900);
+  --surface-sunken: var(--color-neutral-800);
+  --surface-hover: var(--color-neutral-800);
+  --surface-brand-subtle: rgba(255, 107, 0, 0.12);
+
+  --fg-primary: var(--color-neutral-50);
+  --fg-secondary: var(--color-neutral-300);
+  --fg-muted: var(--color-neutral-500);
+  --fg-brand: var(--color-brand-400);
+  --fg-on-action: #ffffff;
+
+  --border-subtle: var(--color-neutral-800);
+  --border-default: var(--color-neutral-700);
+  --border-strong: var(--color-neutral-600);
+  --border-brand: var(--color-brand-700);
+
+  --action-primary: var(--color-brand-500);
+  --action-primary-hover: var(--color-brand-400);
+  --action-primary-active: var(--color-brand-600);
+  --focus-ring: var(--color-brand-400);
+
+  --feedback-success: var(--color-success-500);
+  --feedback-warning: var(--color-warning-500);
+  --feedback-danger: var(--color-danger-500);
+  --feedback-info: var(--color-info-500);
+
+  /* Legacy semantic compatibility variables */
+  --canvas: var(--surface-page);
+  --surface: var(--surface-card);
+  --surface-muted: var(--surface-sunken);
+  --surface-elevated: var(--surface-card);
+  --surface-warm: #241a12;
+  --text-primary: var(--fg-primary);
+  --text-secondary: var(--fg-secondary);
+  --text-muted: var(--fg-muted);
+  --border: var(--border-subtle);
+  --divider: var(--border-default);
+
+  --brand-primary: #ff7a1a;
+  --brand-primary-soft: #3a2111;
+
+  --color-member: #9b7bff;
+  --color-member-soft: #261d3d;
+  --color-success: var(--feedback-success);
+  --color-success-soft: #123329;
+  --color-reward: var(--feedback-warning);
+  --color-danger: var(--feedback-danger);
+}
+
+/* ── ACTA Feed Design Tokens: 3. Tailwind Theme Inline Utilities ──────────── */
+@theme inline {
+  --color-surface-page: var(--surface-page);
+  --color-surface-card: var(--surface-card);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-brand-subtle: var(--surface-brand-subtle);
+
+  --color-fg-primary: var(--fg-primary);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-brand: var(--fg-brand);
+  --color-fg-on-action: var(--fg-on-action);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-border-brand: var(--border-brand);
+
+  --color-action-primary: var(--action-primary);
+  --color-action-primary-hover: var(--action-primary-hover);
+  --color-action-primary-active: var(--action-primary-active);
+  --color-focus-ring: var(--focus-ring);
+
+  --color-feedback-success: var(--feedback-success);
+  --color-feedback-warning: var(--feedback-warning);
+  --color-feedback-danger: var(--feedback-danger);
+  --color-feedback-info: var(--feedback-info);
+}
+
+.bg-canvas { background-color: var(--canvas); }
+.bg-surface { background-color: var(--surface); }
+.bg-surface-muted { background-color: var(--surface-muted); }
+.bg-surface-warm { background-color: var(--surface-warm); }
+.text-primary-token { color: var(--text-primary); }
+.text-secondary-token { color: var(--text-secondary); }
+.border-token { border-color: var(--border); }
+.bg-brand-primary { background-color: var(--brand-primary); }
+.text-brand-primary { color: var(--brand-primary); }
+.bg-brand-primary-soft { background-color: var(--brand-primary-soft); }
+.bg-member { background-color: var(--color-member); }
+.text-member { color: var(--color-member); }
+.bg-success { background-color: var(--color-success); }
+.text-success { color: var(--color-success); }
+.bg-reward { background-color: var(--color-reward); }
+.text-reward { color: var(--color-reward); }
+.bg-danger { background-color: var(--color-danger); }
+.text-danger { color: var(--color-danger); }
+
+/* Chặn tràn ngang trên mọi thiết bị.
+ *
+ * `overflow-x` chỉ đặt trên `html`, KHÔNG đặt trên `body`. Đây không phải gộp
+ * cho gọn mắt — thêm nó vào `body` là dựng ra một thanh cuộn dọc THỨ HAI:
+ *
+ *  1. Khai `overflow-x: hidden` mà để `overflow-y` mặc định thì theo spec
+ *     `visible` bị tính thành `auto` — một trục non-visible kéo trục kia theo.
+ *     Không ai viết `auto` cả, nó tự sinh ra.
+ *  2. `html` được quyền TRUYỀN overflow của mình lên viewport, và nó dùng mất
+ *     suất đó. `body` vì vậy không truyền được nữa mà giữ nguyên
+ *     `overflow-y: auto` của chính nó, tức thành một vùng cuộn lồng bên trong
+ *     vùng cuộn của trang.
+ *  3. Nội dung ngắn thì không ai thấy gì. Đủ dài để tràn thì cả `html` lẫn
+ *     `body` cùng mọc thanh cuộn, hai dải 15px nằm sát nhau ở mép phải.
+ *
+ * Đo trên `/daily-reports/<scopeId>/board`, nhóm 44 thành viên, 01/09/2026:
+ *
+ *   trước:  html 749/1896 oy=auto  +  body 749/1984 oy=auto   → 15px + 15px
+ *   sau:    html 749/1984 oy=auto,    body oy=visible         → 15px
+ *
+ * Phần việc mà quy tắc này sinh ra để làm vẫn nguyên: `html` giữ
+ * `overflow-x: hidden` nên khối quá khổ vẫn bị cắt, không mọc thanh cuộn ngang.
+ * `position: sticky` cũng không đổi: đầu bảng và cột nhóm vẫn dính ở 65px.
+ *
+ * ⚠ Đừng "sửa" bằng cách thêm `overflow-y: visible` cho `body` — đã thử và đo,
+ * vô hiệu: trục kia là `hidden` nên nó bị ép về `auto` ngay lập tức. Cách duy
+ * nhất là KHÔNG khai `overflow-x` trên `body`.
+ *
+ * Cùng họ với cái bẫy đã ghi ở `components/tasks/tasks-route-shell.tsx` (chỗ
+ * nói vì sao không dùng class `container`): ở đó `overflow-x: hidden` biến một
+ * div thành scrollport và giết mọi `position: sticky` bên trong. */
+html {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+body {
+  max-width: 100vw;
+}
+
+/* Mobile sidebar fixes */
+@media (max-width: 768px) {
+  /* Force sidebar to be visible and functional on mobile */
+  .group\/sidebar-wrapper {
+    position: relative !important;
+  }
+
+  /* Sidebar positioning - Make it wider for mobile */
+  .group\/sidebar-wrapper [data-sidebar='sidebar'] {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 50 !important;
+    height: 100vh !important;
+    width: 320px !important; /* Increased from 280px */
+    max-width: 85vw !important; /* Responsive max width */
+    transform: translateX(-100%) !important;
+    transition: transform 0.3s ease-in-out !important;
+    background: hsl(var(--sidebar)) !important;
+    border-right: 1px solid hsl(var(--sidebar-border)) !important;
+  }
+
+  /* Show sidebar when expanded */
+  .group\/sidebar-wrapper [data-sidebar='sidebar'][data-state='expanded'] {
+    transform: translateX(0) !important;
+  }
+
+  /* Sidebar content area - ensure it takes full width */
+  .group\/sidebar-wrapper [data-sidebar='inset'] {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin-left: 0 !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Add overlay when sidebar is open */
+  .group\/sidebar-wrapper:has(
+      [data-sidebar='sidebar'][data-state='expanded']
+    )::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 40;
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  /* Sidebar trigger button - ensure it's visible and clickable */
+  [data-sidebar='trigger'] {
+    display: flex !important;
+    z-index: 10 !important;
+    position: relative !important;
+    padding: 12px !important; /* Larger touch target */
+  }
+
+  /* Header adjustments */
+  [data-sidebar='inset'] header {
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 10 !important;
+    height: 60px !important; /* Taller header for mobile */
+  }
+
+  /* Main content adjustments */
+  [data-sidebar='inset'] main {
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+    flex: 1 !important;
+  }
+
+  /* Ensure sidebar content is scrollable */
+  [data-sidebar='sidebar'] [data-sidebar='content'] {
+    overflow-y: auto !important;
+    height: calc(
+      100vh - 140px
+    ) !important; /* Adjusted for larger header/footer */
+    padding: 8px !important;
+  }
+
+  /* Sidebar header and footer - Make them taller */
+  [data-sidebar='sidebar'] [data-sidebar='header'] {
+    flex-shrink: 0 !important;
+    height: 70px !important; /* Taller header */
+    padding: 16px !important;
+  }
+
+  [data-sidebar='sidebar'] [data-sidebar='footer'] {
+    flex-shrink: 0 !important;
+    height: 70px !important; /* Taller footer */
+    padding: 16px !important;
+  }
+
+  /* Make navigation items larger and more touch-friendly */
+  [data-sidebar='menu-button'] {
+    min-height: 48px !important; /* Minimum touch target size */
+    padding: 12px 16px !important;
+    font-size: 16px !important;
+    border-radius: 8px !important;
+    margin-bottom: 4px !important;
+  }
+
+  /* Make icons larger */
+  [data-sidebar='menu-button'] svg {
+    width: 20px !important;
+    height: 20px !important;
+  }
+
+  /* Submenu items */
+  [data-sidebar='menu-sub-button'] {
+    min-height: 44px !important;
+    padding: 10px 16px !important;
+    font-size: 15px !important;
+    margin-left: 12px !important;
+  }
+
+  /* Group labels */
+  [data-sidebar='group-label'] {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    padding: 12px 16px 8px 16px !important;
+    color: hsl(var(--sidebar-foreground)) !important;
+  }
+
+  /* User section in footer */
+  [data-sidebar='footer'] [data-sidebar='menu-button'] {
+    min-height: 52px !important;
+    padding: 12px !important;
+  }
+
+  /* Avatar in user section */
+  [data-sidebar='footer'] .avatar {
+    width: 36px !important;
+    height: 36px !important;
+  }
+}
+
+/* Ensure sidebar works on very small screens */
+@media (max-width: 540px) {
+  .group\/sidebar-wrapper [data-sidebar='sidebar'] {
+    width: 300px !important; /* Slightly smaller for very small screens */
+    max-width: 90vw !important;
+  }
+
+  /* Even larger touch targets for very small screens */
+  [data-sidebar='menu-button'] {
+    min-height: 52px !important;
+    padding: 14px 16px !important;
+    font-size: 17px !important;
+  }
+
+  [data-sidebar='menu-button'] svg {
+    width: 22px !important;
+    height: 22px !important;
+  }
+}
+/* Surface Duo specific fixes */
+/* ⚠️ BẪY ĐÃ MẤT MỘT BUỔI ĐỂ TRUY — đọc trước khi thêm gì vào khối này.
+ *
+ * Khối này KHÔNG nằm trong `@layer` nào. Theo tầng xếp lớp của CSS, luật không
+ * phân lớp luôn thắng luật phân lớp — BẤT KỂ độ đặc hiệu. Tailwind v4 đặt toàn
+ * bộ utility trong `@layer utilities`, nên mọi thứ khai ở đây thắng utility
+ * tương ứng ở khổ máy ≤540px, kể cả `!important` không có mặt.
+ *
+ * Hậu quả đang sống: `min-width: 0` trên `input, select, button` bên dưới vô
+ * hiệu hoá MỌI class `min-w-*` của ba thẻ đó dưới 541px. Đo được: nút Danh mục
+ * KPI (`board-kpi-summary.tsx`) ra `min-width: 0px` ở 320/375 nhưng `36px` ở
+ * 640/768 — vì `sm:min-w-9` nằm ngoài ngưỡng 540. Nó co xuống 16px, dưới sàn
+ * chạm 24×24 của WCAG. Đã vá riêng bằng `w-11` (`width` không bị khối này chạm),
+ * KHÔNG phải bằng cách sửa ở đây.
+ *
+ * Muốn sửa tận gốc thì bọc khối này vào `@layer base`. Đừng làm kèm một việc
+ * khác: nó trả `min-w-*` lại cho MỌI màn của toàn app cùng lúc, cần một đợt đo
+ * riêng cho các màn ngoài Báo cáo. Trước khi đó, mọi `min-w-*` bạn viết cho
+ * `input`/`select`/`button` ở khổ điện thoại đều là code chết. */
+@media (max-width: 540px) {
+  * {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .container {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  /* Ensure cards don't overflow */
+  .card {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Fix select dropdowns */
+  .select-trigger {
+    max-width: 100%;
+  }
+
+  /* Fix input fields */
+  input,
+  select,
+  button {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  /* Fix text overflow */
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  /* Breadcrumb fixes */
+  .breadcrumb {
+    max-width: calc(100vw - 100px) !important;
+    overflow: hidden !important;
+  }
+
+  .breadcrumb > * {
+    flex-shrink: 1 !important;
+    min-width: 0 !important;
+  }
+}
+
+/* Container query fallback for Surface Duo */
+.surface-duo-container {
+  container-type: inline-size;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+@container (max-width: 540px) {
+  .surface-duo-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .surface-duo-grid-2 {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+}
+
+/* Feed filter toolbar container responsive layout */
+.feed-filter-container {
+  container-type: inline-size;
+  container-name: feed-filter;
+}
+
+.feed-filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.feed-filter-search {
+  min-width: 0;
+  position: relative;
+}
+
+.feed-filter-sort {
+  min-width: 0;
+}
+
+.feed-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* TIER 1: WIDE (>= 700px container width) - 1 row */
+@container feed-filter (min-width: 700px) {
+  .feed-filter-search {
+    flex: 1 1 220px;
+    min-width: 200px;
+  }
+  .feed-filter-sort {
+    flex: 0 0 160px;
+    width: 160px;
+  }
+  .feed-filter-mobile-toggle {
+    display: none !important;
+  }
+  .feed-filter-actions {
+    display: flex !important;
+    flex: 0 0 auto;
+    width: auto;
+  }
+}
+
+/* TIER 2: INTERMEDIATE (500px - 699.98px container width) - 2 rows */
+@container feed-filter (min-width: 500px) and (max-width: 699.98px) {
+  .feed-filter-search {
+    flex: 1 1 220px;
+    min-width: 200px;
+  }
+  .feed-filter-sort {
+    flex: 0 0 160px;
+    width: 160px;
+  }
+  .feed-filter-mobile-toggle {
+    display: none !important;
+  }
+  .feed-filter-actions {
+    display: flex !important;
+    width: 100%;
+    flex: 1 0 100%;
+    padding-top: 0.125rem;
+  }
+}
+
+/* TIER 3: COMPACT (< 500px container width) - Search + Sort/Filter */
+@container feed-filter (max-width: 499.98px) {
+  .feed-filter-search {
+    width: 100%;
+    flex: 1 0 100%;
+  }
+  .feed-filter-sort {
+    flex: 1 1 0%;
+    min-width: 0;
+    width: auto;
+  }
+  .feed-filter-mobile-toggle {
+    display: inline-flex !important;
+    flex-shrink: 0;
+  }
+  .feed-filter-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    padding-top: 0.25rem;
+  }
+  .feed-filter-actions.is-collapsed {
+    display: none !important;
+  }
+  .feed-filter-actions.is-expanded {
+    display: flex !important;
+  }
+  .feed-filter-actions button {
+    width: 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-custom {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(203 213 225) transparent;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    background-color: rgb(203 213 225);
+    border-radius: 3px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(148 163 184);
+  }
+
+  /* ── Thanh cuộn của màn /tasks ──────────────────────────────────────────
+   * Vì sao phải khai riêng: các vùng cuộn ở đó trước dùng `overflow-y-auto`
+   * trần, tức ăn thanh cuộn MẶC ĐỊNH của hệ điều hành — trên Windows là dải
+   * ~17px nền xám kín, đậm ngang một đường viền cấp 2 và chạy dọc suốt cột.
+   * Trong một màn mà luật màu là "nhấn bằng nền, không nhấn bằng viền đậm"
+   * (docs 03), dải xám đó là thứ tương phản mạnh nhất trên màn hình mà lại
+   * không mang thông tin gì.
+   *
+   * Khác `.scrollbar-custom` ngay trên ở chỗ màu lấy từ token `ws-*` nên tự
+   * đảo theo chế độ tối, thay vì ghi cứng một sắc xám slate.
+   *
+   * Vì sao là class gắn tay chứ không phải `.ws-scope *`: selector `*` sẽ đè
+   * cả `.scrollbar-hide` lẫn các `[&::-webkit-scrollbar]:hidden` của Tailwind,
+   * tức bật lại thanh cuộn ở đúng những chỗ đã cố ý ẩn.
+   *
+   * Mẹo `border` trong suốt + `background-clip: content-box`: vệt màu chỉ dày
+   * 4px cho nhẹ mắt, nhưng vùng bắt chuột vẫn đủ 10px để kéo được. */
+  .ws-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(
+        in oklab,
+        var(--color-ws-line-strong) 32%,
+        transparent
+      )
+      transparent;
+  }
+
+  .ws-scroll::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+
+  .ws-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ws-scroll::-webkit-scrollbar-thumb {
+    background-color: color-mix(
+      in oklab,
+      var(--color-ws-line-strong) 32%,
+      transparent
+    );
+    background-clip: content-box;
+    /* Rãnh 9px nhưng vệt màu chỉ 3px: `border` trong suốt ăn hết phần còn
+     * lại, còn `background-clip: content-box` giữ màu trong lòng. Vùng bắt
+     * chuột vẫn đủ 9px để kéo được, mà mắt chỉ thấy một sợi mảnh. */
+    border: 3px solid transparent;
+    border-radius: 999px;
+  }
+
+  /* Đậm lên khi con trỏ đang ở trong vùng cuộn — lúc đó thanh cuộn mới là
+   * thứ người dùng đang cần nhìn. */
+  .ws-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(
+      in oklab,
+      var(--color-ws-line-strong) 55%,
+      transparent
+    );
+  }
+
+  .ws-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .hide-scrollbar {
+    -webkit-scrollbar: none;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Brand utilities */
+  .bg-brand-gradient {
+    background: linear-gradient(135deg, #fff8f0 0%, #ffedd5 50%, #fef3c7 100%);
+  }
+
+  .text-brand-orange {
+    color: #ff8c00;
+  }
+
+  .bg-brand-orange {
+    background-color: #ff8c00;
+  }
+
+  .border-brand-orange {
+    border-color: #ff8c00;
+  }
+
+  .bg-brand-cream {
+    background-color: #f5f5dc;
+  }
+
+  /* Enhanced button styles */
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg transition-all duration-200;
+  }
+
+  /* Enhanced card styles */
+  .card-branded {
+    @apply bg-white/95 backdrop-blur-sm border-orange-200 shadow-2xl;
+  }
+
+  /* Custom scrollbar for better UX */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #ff8c00;
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #e67300;
+  }
+
+  /* Background utilities */
+  .header-bg {
+    background: linear-gradient(90deg, #ffd600 0%, #fff9ec 100%);
+  }
+
+  .footer-bg {
+    background: #fffde7;
+    color: #757575;
+  }
+
+  .bg-banner {
+    background: #fff8e1;
+  }
+
+  .bg-category {
+    background: #fffde7;
+  }
+
+  .bg-section {
+    background: #fff9ec;
+  }
+
+  .bg-cta {
+    background: linear-gradient(90deg, #ffd600 0%, #fff9ec 100%);
+  }
+
+  /* Modern color utilities */
+  .bg-modern-primary {
+    background-color: var(--color-modern-primary);
+  }
+  .text-red-orange {
+    color: #e53935;
+  }
+
+  /* Custom scrollbar styles */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--color-modern-primary);
+    border-radius: 3px;
+    opacity: 0.3;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    opacity: 0.6;
+  }
+
+  .text-modern-primary {
+    color: var(--color-modern-primary);
+  }
+
+  .border-modern-primary {
+    border-color: var(--color-modern-primary);
+  }
+
+  .bg-modern-secondary {
+    background-color: var(--color-modern-secondary);
+  }
+
+  .text-modern-secondary {
+    color: var(--color-modern-secondary);
+  }
+
+  .border-modern-secondary {
+    border-color: var(--color-modern-secondary);
+  }
+
+  .bg-modern-accent {
+    background-color: var(--color-modern-accent);
+  }
+
+  .text-modern-accent {
+    color: var(--color-modern-accent);
+  }
+
+  .border-modern-accent {
+    border-color: var(--color-modern-accent);
+  }
+
+  .text-modern-text {
+    color: var(--color-modern-text);
+  }
+
+  .bg-modern-background {
+    background-color: var(--color-modern-background);
+  }
+
+  /* Modern button styles */
+  .btn-modern-primary {
+    @apply bg-modern-primary text-modern-primary-foreground hover:bg-modern-primary/90 shadow-lg transition-all duration-200;
+  }
+
+  .btn-modern-secondary {
+    @apply bg-modern-secondary text-modern-secondary-foreground hover:bg-modern-secondary/90 shadow-lg transition-all duration-200;
+  }
+
+  .btn-modern-accent {
+    @apply bg-modern-accent text-modern-accent-foreground hover:bg-modern-accent/90 shadow-lg transition-all duration-200;
+  }
+
+  /* Modern card styles */
+  .card-modern {
+    @apply bg-modern-background border-modern-primary/20 shadow-xl;
+  }
+
+  /* React DatePicker */
+  .react-datepicker-wrapper {
+    width: 100%;
+  }
+
+  /* Preview component background fixes */
+  .bg-blue-50 .ProseMirror,
+  .bg-blue-50 .tiptap,
+  .bg-blue-50 .preview-content {
+    background-color: rgb(239 246 255) !important;
+  }
+
+  .bg-blue-50 .preview-content * {
+    background-color: transparent !important;
+  }
+}
+
+/* Marquee animation */
+.marquee-container {
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.marquee-content {
+  display: flex;
+  animation: marquee 30s linear infinite;
+  width: max-content;
+}
+
+.marquee-content:hover {
+  animation-play-state: paused;
+}
+
+.marquee-item {
+  flex-shrink: 0;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+/* Print styles for invoices */
+@media print {
+  /* Hide everything by default */
+  * {
+    visibility: hidden;
+  }
+
+  /* Show only the invoice template and its children */
+  .invoice-container,
+  .invoice-container * {
+    visibility: visible;
+  }
+
+  /* Position the invoice template at the top-left of the page */
+  .invoice-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    padding: 15mm !important;
+    box-sizing: border-box;
+    page-break-after: auto;
+    page-break-inside: avoid;
+    background: white !important;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: white !important;
+  }
+
+  .print-hidden {
+    display: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  /* Ensure no page breaks inside table rows */
+  tr {
+    page-break-inside: avoid;
+  }
+
+  /* Force RGB colors for PDF generation compatibility */
+  .invoice-container * {
+    color: rgb(0, 0, 0) !important;
+    border-color: rgb(0, 0, 0) !important;
+    background-color: rgb(255, 255, 255) !important;
+  }
+
+  .invoice-container .font-bold {
+    font-weight: bold !important;
+  }
+
+  .invoice-container .italic {
+    font-style: italic !important;
+  }
+}
+/* For calendar - react day picker config */
+.rdp-root {
+  --rdp-accent-color: var(
+    --color-modern-primary
+  ); /* Change the accent color ( button icon color ). */
+}
+
+.zalo-chat-btn {
+  animation: zalo-bounce 5s infinite;
+}
+
+@keyframes zalo-bounce {
+  0%,
+  75% {
+    transform: translateY(0) scale(1);
+  }
+
+  /* Bounce lần 1 */
+  80% {
+    transform: translateY(-6px) scale(1.05);
+  }
+  85% {
+    transform: translateY(0) scale(1);
+  }
+
+  /* Bounce lần 2 */
+  90% {
+    transform: translateY(-4px) scale(1.03);
+  }
+  96% {
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/**
+ * Forum @acta/ui Quill: ẩn toolbar (toàn nút định dạng dùng SVG Snow); chỉ còn vùng gõ.
+ */
+.forum-topic-quill-scope .ql-toolbar {
+  display: none !important;
+}
+
+.forum-topic-quill-scope .ql-toolbar + .ql-container,
+.forum-topic-quill-scope .ql-container.ql-snow {
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: oklch(92.3% 0.003 48.717);
+}
+
+.dark .forum-topic-quill-scope .ql-toolbar + .ql-container,
+.dark .forum-topic-quill-scope .ql-container.ql-snow {
+  border-top-color: oklch(100% 0 0 / 10%);
+}
+
+/**
+ * Hiệu ứng hiện dần cho các khối nội dung chính — thay cho
+ * `<motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>`.
+ *
+ * Lý do đổi: framer-motion ghi thẳng `style="opacity:0"` vào HTML do server
+ * trả về. Từ khi bật SSR, gần như mọi khối nội dung đến trình duyệt ở trạng
+ * thái VÔ HÌNH và chỉ hiện ra sau khi tải xong JS rồi hydrate — trang trông
+ * như đứng hình cho tới lúc đó, rồi bung ra một lượt.
+ *
+ * CSS animation chạy ngay trong lúc trình duyệt phân tích HTML, không cần
+ * JavaScript, nên nội dung hiện dần từ trên xuống đúng theo thứ tự trong
+ * luồng stream.
+ */
+@keyframes acta-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.acta-reveal {
+  animation: acta-reveal 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+/* Trễ theo bậc để các khối nối nhau, không bung cùng lúc. */
+.acta-reveal-1 {
+  animation-delay: 0.06s;
+}
+.acta-reveal-2 {
+  animation-delay: 0.12s;
+}
+.acta-reveal-3 {
+  animation-delay: 0.18s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acta-reveal,
+  .acta-reveal-1,
+  .acta-reveal-2,
+  .acta-reveal-3 {
+    animation: none;
+  }
+}
+
+/**
+ * ACTA Feed: Background Canvas & Atmospheric Gutter Architecture
+ */
+.editorial-canvas {
+  background-color: var(--surface-page);
+  min-height: 100vh;
+}
+
+.gutter-texture {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+@media (min-width: 90rem) {
+  .gutter-texture::before,
+  .gutter-texture::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: calc((100vw - var(--container-acta-shell)) / 2);
+    pointer-events: none;
+    background-image: radial-gradient(rgba(180, 160, 140, 0.15) 1px, transparent 1px);
+    background-size: 20px 20px;
+    opacity: 0.6;
+  }
+
+  .gutter-texture::before {
+    left: 0;
+    mask-image: linear-gradient(to right, rgba(0,0,0,0.8), transparent);
+    -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,0.8), transparent);
+  }
+
+  .gutter-texture::after {
+    right: 0;
+    mask-image: linear-gradient(to left, rgba(0,0,0,0.8), transparent);
+    -webkit-mask-image: linear-gradient(to left, rgba(0,0,0,0.8), transparent);
+  }
+}
+

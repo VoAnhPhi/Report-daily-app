@@ -1,0 +1,149 @@
+// Game Marketing System - Mini Game "Trả lời câu hỏi nhận thưởng"
+
+// OTP Status Enum
+enum OtpStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  USED
+}
+
+// Game Session Status Enum
+enum GameSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+// OTP Requests - Track OTP verification via Zalo OA
+model OtpRequest {
+  id            String    @id @default(uuid())
+  phoneNumber   String    @unique
+  name          String    @db.VarChar(255)
+  trackingId    String    @unique @map("tracking_id")
+  otpCode       String    @map("otp_code")
+  sessionToken  String?   @unique @map("session_token")
+  status        OtpStatus @default(PENDING)
+  attempts      Int       @default(0)
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  blockedUntil  DateTime? @map("blocked_until")
+  verifiedAt    DateTime? @map("verified_at")
+  expiredAt     DateTime  @map("expired_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // ZNS Delivery Tracking
+  zaloMsgId   String?   @map("zalo_msg_id")
+  deliveredAt DateTime? @map("delivered_at")
+
+  // Relations
+  user   User?   @relation("OtpRequests", fields: [userId], references: [id], onDelete: SetNull)
+  userId String? @map("user_id")
+
+  @@index([phoneNumber])
+  @@index([trackingId])
+  @@index([sessionToken])
+  @@index([status])
+  @@index([blockedUntil])
+  @@index([zaloMsgId])
+  @@map("otp_requests")
+}
+
+// Game Sessions - Track each game play
+model GameSession {
+  id             String            @id @default(uuid())
+  userId         String            @map("user_id")
+  status         GameSessionStatus @default(IN_PROGRESS)
+  score          Int               @default(0)
+  totalQuestions Int               @default(10) @map("total_questions")
+  correctAnswers Int               @default(0) @map("correct_answers")
+  isWin          Boolean           @default(false) @map("is_win")
+  playedAt       DateTime          @default(now()) @map("played_at")
+  completedAt    DateTime?         @map("completed_at")
+
+  // Relations
+  user          User          @relation("GameSessions", fields: [userId], references: [id], onDelete: Cascade)
+  playHistories PlayHistory[]
+
+  @@index([userId, playedAt])
+  @@index([status])
+  @@map("game_sessions")
+}
+
+// Play History - Track each answer for analytics
+model PlayHistory {
+  id               String   @id @default(uuid())
+  gameSessionId    String   @map("game_session_id")
+  questionId       String   @map("question_id")
+  selectedAnswerId String   @map("selected_answer_id")
+  isCorrect        Boolean  @map("is_correct")
+  answeredAt       DateTime @default(now()) @map("answered_at")
+
+  // Relations
+  gameSession GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Cascade)
+
+  @@index([gameSessionId])
+  @@map("play_histories")
+}
+
+// Question Bank - Store game questions
+model Question {
+  id         String   @id @default(uuid())
+  content    String   @db.Text
+  isActive   Boolean  @default(true) @map("is_active")
+  category   String?  @db.VarChar(100)
+  difficulty String?  @db.VarChar(50)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  answers Answer[]
+
+  @@index([isActive, category])
+  @@map("questions")
+}
+
+// Answers - Store possible answers for each question
+model Answer {
+  id         String  @id @default(uuid())
+  questionId String  @map("question_id")
+  content    String  @db.VarChar(500)
+  isCorrect  Boolean @default(false) @map("is_correct")
+
+  // Relations
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("answers")
+}
+
+// Daily Limits - Track earned/used plays per day
+// One record per user per day (created by cron job)
+model DailyLimit {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
+  // Timestamps with timezone info (VN: UTC+7)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Play tracking
+  earned    Int @default(1)
+  used      Int @default(0)
+  winsCount Int @default(0) @map("wins_count")
+
+  // Question cycle tracking (35 questions = 5 chunks of 7 questions)
+  currentChunkIndex Int @default(1) @map("current_chunk_index") // 1-5: which chunk user is on
+  shuffleVersion    Int @default(1) @map("shuffle_version") // Increment when reshuffling all 35 questions
+
+  // Breakdown by source
+  baseGranted       Boolean @default(false) @map("base_granted")
+  referralEarned    Int     @default(0) @map("referral_earned") // Earned from referrals today
+  referralCarryover Int     @default(0) @map("referral_carryover") // Unused referral plays from previous day
+  gameEarned        Int     @default(0) @map("game_earned") // Earned from game wins today
+
+  // Relations
+  user User @relation("DailyLimits", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt]) // Composite index for "today's record for user"
+  @@index([createdAt]) // Index for analytics "all users created today"
+  @@map("daily_limits")
+}

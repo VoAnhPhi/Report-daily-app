@@ -1,0 +1,147 @@
+// ==================== GROUP BUY ====================
+
+enum GroupBuyStatus {
+  open
+  locked
+  completed
+  cancelled
+}
+
+enum GroupBuyMemberStatus {
+  invited
+  accepted
+  declined
+  left
+}
+
+enum GroupBuyLogType {
+  CREATED
+  INVITED
+  ACCEPTED
+  DECLINED
+  LEFT
+  CHECKED_OUT
+  CANCELLED
+  REWARD_DISTRIBUTED
+  KICKED
+  DISBANDED
+  ITEM_ADDED
+  ITEM_REMOVED
+  ITEM_QTY_UPDATED
+  ITEM_REPLACED
+  JOINED
+}
+
+model GroupBuy {
+  id String @id @default(cuid())
+
+  leaderId String
+  leader   User   @relation("GroupBuyLeader", fields: [leaderId], references: [id])
+
+  status GroupBuyStatus @default(open)
+
+  // Populated at Phase 16 checkout — one-to-one link to the order
+  orderId String? @unique
+  order   Order?  @relation(fields: [orderId], references: [id])
+
+  // Frozen at checkout (Phase 16)
+  frozenMemberCount Int?
+  frozenAt          DateTime?
+
+  // Soft-delete: a failed/expired/cancelled order soft-deletes its group (sets
+  // deletedAt) instead of hard-deleting, so a later late-payment recovery can
+  // REOPEN it (deletedAt=null) and split commissions to every member. A daily
+  // retention cron hard-deletes rows whose deletedAt is older than 30 days.
+  // ALL "live group" reads MUST filter `deletedAt: null`.
+  deletedAt     DateTime?
+  disbandReason String?
+
+  members GroupBuyMember[]
+  logs    GroupBuyLog[]
+  items   GroupBuyItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leaderId])
+  @@index([status])
+  @@index([orderId])
+  @@index([deletedAt])
+  @@map("group_buys")
+}
+
+model GroupBuyMember {
+  id String @id @default(cuid())
+
+  groupBuyId String
+  groupBuy   GroupBuy @relation(fields: [groupBuyId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("UserGroupBuyMemberships", fields: [userId], references: [id], onDelete: Cascade)
+
+  status   GroupBuyMemberStatus
+  isLeader Boolean              @default(false)
+
+  // Persisted gross subtotal share at checkout freeze: order.subtotal ÷ frozenMemberCount
+  individualContribution Decimal?
+
+  // Persisted Σ(per-line baseAfter532) ÷ frozenMemberCount at checkout freeze; drives Luồng B/F3/F6 (Phase 30)
+  memberBase Decimal?
+
+  invitedAt        DateTime  @default(now())
+  respondedAt      DateTime? // Set on accept or decline
+  leftAt           DateTime? // Set on leave
+  kickedAt         DateTime? // Set when the leader kicks the member; blocks rejoin (a voluntary leave leaves this null)
+  termsAcceptedAt  DateTime? // T&C acceptance audit timestamp set on join
+  placedMailSentAt DateTime? // Sent-guard: claimed by group-buy-placed handler before Resend (MAIL-02, Phase 16)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([groupBuyId, userId])
+  @@index([groupBuyId])
+  @@index([userId])
+  @@index([status])
+  @@map("group_buy_members")
+}
+
+model GroupBuyItem {
+  id String @id @default(cuid())
+
+  groupBuyId String
+  groupBuy   GroupBuy @relation(fields: [groupBuyId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation("ProductGroupBuyItems", fields: [productId], references: [id])
+
+  quantity Int      @default(1)
+  addedAt  DateTime @default(now())
+
+  @@unique([groupBuyId, productId])
+  @@index([groupBuyId])
+  @@index([productId])
+  @@map("group_buy_items")
+}
+
+// Insert-only audit log — never update or delete rows.
+model GroupBuyLog {
+  id String @id @default(cuid())
+
+  groupBuyId String
+  groupBuy   GroupBuy @relation(fields: [groupBuyId], references: [id], onDelete: Cascade)
+
+  // null = system action
+  actorId String?
+  actor   User?   @relation("GroupBuyLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  type    GroupBuyLogType
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([groupBuyId])
+  @@index([actorId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("group_buy_logs")
+}

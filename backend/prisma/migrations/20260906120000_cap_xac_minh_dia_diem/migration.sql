@@ -1,0 +1,32 @@
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║  CẤP XÁC MINH ĐỊA ĐIỂM — mở đường cho tính năng "đối tác nổi bật"          ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+--
+-- ── LỖ HỔNG ĐANG VÁ ────────────────────────────────────────────────────────
+-- Migration 20260906000000 (cùng ngày) thêm "đối tác nổi bật" kèm một cổng
+-- chặn: điểm đang ở `verifiedLevel = 'none'` thì KHÔNG được đánh dấu nổi bật,
+-- vì `featured` nằm trên cùng thang `VerifiedLevel` và acta-solutions vẽ huy
+-- hiệu "đã xác minh" bằng phép `verifiedLevel > 0` — nổi bật một điểm chưa xác
+-- minh là ĐỒNG THỜI tự phong cho nó một huy hiệu nó chưa có.
+--
+-- Cổng ấy đúng. Vấn đề là thứ nó chỉ sang KHÔNG TỒN TẠI: quét toàn bộ `src/`
+-- ngày 06/09/2026 cho thấy **không một dòng mã nào trong acta-api từng ghi
+-- `verifiedLevel` thành `claimed`/`verified`/`premium`** — kể cả
+-- `business-claims` (module duyệt quyền sở hữu) cũng không đụng tới cột này.
+-- Mặc định của cột là `none`, nên MỌI địa điểm đều là `none`, nên MỌI lần bấm
+-- ngôi sao đều trả 400. Tính năng có endpoint, có nút, có quyền, và **không ai
+-- trên đời dùng được**.
+--
+-- Đây là một xanh-giả cùng họ với §41/§44: cổng chặn báo đúng, thông điệp lỗi
+-- đọc rất thuyết phục ("hãy nâng cấp xác minh trước"), và không có gì trong hệ
+-- thống nói cho ai biết rằng câu đó chỉ sang một cánh cửa chưa được xây.
+--
+-- ── BẢN VÁ ─────────────────────────────────────────────────────────────────
+-- Một loại hoạt động mới cho đường `POST /admin/locations/:id/verify-level`.
+-- KHÔNG có thay đổi bảng nào: cột `verifiedLevel` đã tồn tại từ nền móng, thứ
+-- thiếu là một đường GHI hợp lệ vào nó cùng một dấu vết kiểm toán.
+--
+-- ⚠ Postgres 15 (Supabase) cho `ALTER TYPE ... ADD VALUE` chạy trong
+-- transaction của Prisma, VỚI ĐIỀU KIỆN giá trị vừa thêm không được DÙNG trong
+-- cùng transaction. Tệp này chỉ THÊM — cùng tiền lệ với 20260906000000.
+ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'BUSINESS_LOCATION_VERIFY_LEVEL_CHANGED';

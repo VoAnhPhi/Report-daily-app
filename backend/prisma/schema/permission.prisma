@@ -1,0 +1,170 @@
+// ============================================================================
+// PERMISSION SYSTEM - Granular Access Control
+// ============================================================================
+
+// Permission definition - Định nghĩa các quyền trong hệ thống
+// Note: category and action are stored as plain strings (migrated from enums)
+// Use PermissionCode enum in TypeScript for type safety
+model Permission {
+  id          String  @id @default(uuid())
+  code        String  @unique // e.g., "users.view", "orders.manage"
+  name        String // Tên hiển thị: "Xem danh sách người dùng"
+  description String? // Mô tả chi tiết
+  category    String // Nhóm quyền (dynamic, parsed from code e.g., "products", "product_reviews")
+  action      String // Hành động (dynamic, parsed from code e.g., "view", "manage", "approve")
+
+  // Metadata
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userPermissions UserPermission[]
+  rolePermissions RolePermission[]
+
+  @@index([category])
+  @@index([action])
+  @@index([isActive])
+  @@map("permissions")
+}
+
+// Admin Role - Vai trò quản trị với tập quyền mặc định
+model AdminRole {
+  id          String  @id @default(uuid())
+  code        String  @unique // e.g., "super_admin", "order_manager", "content_editor"
+  name        String // Tên hiển thị: "Quản lý đơn hàng"
+  description String? // Mô tả vai trò
+
+  // Hierarchy level (higher = more authority)
+  level Int @default(0)
+
+  // Metadata
+  isSystem Boolean @default(false) // System roles cannot be deleted
+  isActive Boolean @default(true)
+  color    String? // Badge color for UI
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  rolePermissions RolePermission[]
+  userAdminRoles  UserAdminRole[]
+
+  @@index([level])
+  @@index([isActive])
+  @@map("admin_roles")
+}
+
+// Role-Permission mapping - Quyền mặc định của vai trò
+model RolePermission {
+  id String @id @default(uuid())
+
+  roleId String
+  role   AdminRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// User-AdminRole mapping - Gán vai trò cho user
+model UserAdminRole {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserAdminRoles", fields: [userId], references: [id], onDelete: Cascade)
+
+  roleId String
+  role   AdminRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  // Assignment metadata
+  assignedById String? // Admin who assigned this role
+  assignedAt   DateTime  @default(now())
+  expiresAt    DateTime? // Optional expiration
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([expiresAt])
+  @@map("user_admin_roles")
+}
+
+// User-Permission mapping - Quyền riêng của user (override role permissions)
+model UserPermission {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserPermissions", fields: [userId], references: [id], onDelete: Cascade)
+
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  // Grant or deny (deny overrides grant)
+  granted Boolean @default(true)
+
+  // Assignment metadata
+  assignedById String? // Admin who assigned this permission
+  reason       String? // Reason for granting/denying
+
+  // Timestamps
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  expiresAt DateTime? // Optional expiration
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@index([permissionId])
+  @@index([granted])
+  @@index([expiresAt])
+  @@map("user_permissions")
+}
+
+// Permission audit log - Lịch sử thay đổi quyền
+model PermissionAuditLog {
+  id String @id @default(uuid())
+
+  // Who was affected
+  targetUserId String
+
+  // What changed
+  action     String // "grant_permission", "revoke_permission", "assign_role", "remove_role"
+  entityType String // "permission", "role"
+  entityId   String // Permission or Role ID
+  entityCode String // Permission or Role code for reference
+
+  // Previous and new values
+  previousValue Json?
+  newValue      Json?
+
+  // Who made the change
+  performedById String
+
+  // Additional context
+  reason    String?
+  ipAddress String?
+  userAgent String?
+
+  // Timestamp
+  createdAt DateTime @default(now())
+
+  @@index([targetUserId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("permission_audit_logs")
+}

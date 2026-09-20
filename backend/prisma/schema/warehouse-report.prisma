@@ -1,0 +1,65 @@
+enum WarehouseReportScope {
+  warehouse_node
+  warehouse_group
+  global
+}
+
+enum WarehouseReportStatus {
+  pending
+  generating
+  sent
+  failed
+  skipped_no_data
+  skipped_no_email
+}
+
+model WarehouseReportSendLog {
+  id                String                @id @default(cuid())
+  reportDate        DateTime              @db.Date // Asia/Ho_Chi_Minh date the report covers
+  scope             WarehouseReportScope
+  recipientUserId   String
+  recipientUser     User                  @relation("WarehouseReportRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  recipientEmail    String // snapshot
+  warehouseIds      String[] // resolved managed scope (snapshot)
+  warehouseGroupIds String[] // resolved managed scope (snapshot)
+  isGlobal          Boolean               @default(false)
+  status            WarehouseReportStatus @default(pending)
+  attachmentUrl     String? // null if buffer-only path used
+  attachmentName    String?
+  error             String?               @db.Text
+  generatedAt       DateTime?
+  sentAt            DateTime?
+  attempts          Int                   @default(0)
+  lastAttemptAt     DateTime?
+  errorTrail        Json? // [{ attempt: number, at: string, error: string }]
+  durationMs        Int?
+  metadata          Json? // recipient summary stats, scope hash, etc.
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@unique([reportDate, recipientUserId, scope], name: "report_idem_key") // idempotency
+  @@index([reportDate, status])
+  @@index([recipientUserId, reportDate])
+  @@map("warehouse_report_send_logs")
+}
+
+/// Single-row runtime configuration for the daily warehouse report cron.
+/// Convention: only one row exists; service reads via `findFirst()` and creates
+/// a default row on first access if none exists. Updates go through the admin
+/// config service which invalidates its in-memory cache and reschedules the
+/// cron job via SchedulerRegistry whenever cronExpression changes.
+model WarehouseReportConfig {
+  id                       String   @id @default(cuid())
+  cronExpression           String   @default("0 23 * * 0") // UTC; default = 23:00 UTC Chủ nhật = 06:00 VN thứ Hai (báo cáo HẰNG TUẦN)
+  lowStockThreshold        Int      @default(10)
+  criticalStockThreshold   Int      @default(3)
+  suspiciousStockThreshold Int      @default(1000)
+  reportEnabled            Boolean  @default(true)
+  jitterMaxSeconds         Int      @default(300) // 0 disables jitter
+  updatedById              String?
+  updatedBy                User?    @relation("WarehouseReportConfigUpdater", fields: [updatedById], references: [id])
+  updatedAt                DateTime @updatedAt
+  createdAt                DateTime @default(now())
+
+  @@map("warehouse_report_configs")
+}

@@ -1,0 +1,41 @@
+// Key flags trong RecognizedUser.metadata — để type-safe mapping
+enum RecognizedUserFlagKey {
+  sharing
+  active
+  professional
+  business
+  illuminator
+  luminary
+}
+
+// Danh mục entitlement (quyền lợi thành viên)
+// Source of truth: RecognizedUser.metadata + RecognizedUser.level
+// Bảng này là catalog để UI render badge + điều kiện hiển thị offer
+model Entitlement {
+  id String @id @default(cuid())
+
+  code String @unique // Mã máy đọc (VD: "illuminator", "co_dong")
+
+  name        String // Tên hiển thị (VD: "Người Sáng")
+  description String? @db.Text // Mô tả quyền lợi
+
+  // Phân cấp (tier 0 = cơ bản, tăng dần)
+  tier Int @default(0)
+
+  // Hiển thị
+  color            String? // Hex color (VD: "#F59E0B")
+  icon             String? // Icon name hoặc SVG string
+  iconMuxPosterUrl String? // URL Mux poster nếu dùng video badge
+
+  // Ánh xạ sang RecognizedUser.metadata flag
+  recognizedUserFlagKey RecognizedUserFlagKey? // null nếu dựa vào level thay vì flag
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tier])
+  @@index([isActive])
+  @@map("entitlements")
+}

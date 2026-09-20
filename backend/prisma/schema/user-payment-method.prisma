@@ -1,0 +1,48 @@
+enum PaymentMethodType {
+  BANK_TRANSFER
+  E_WALLET
+}
+
+enum PaymentMethodStatus {
+  active
+  inactive
+}
+
+model UserPaymentMethod {
+  id                String            @id @default(uuid())
+  userId            String
+  /// Loại phương thức thanh toán (BANK_TRANSFER/E_WALLET)
+  type              PaymentMethodType
+  /// Tên ngân hàng (nếu là bank transfer)
+  bankName          String?
+  bankCode          String?
+  bankAccount       String?
+  accountHolderName String?
+  /// Nhà cung cấp ví điện tử (Momo, ZaloPay…)
+  eWalletProvider   String?
+  eWalletAccount    String?
+  eWalletName       String?
+
+  status    PaymentMethodStatus @default(active)
+  /// Có phải phương thức mặc định không
+  isDefault Boolean             @default(false)
+
+  lastUsedAt DateTime?
+  usageCount Int       @default(0)
+  /// Ghi chú thêm
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user                       User                        @relation("UserPaymentMethods", fields: [userId], references: [id], onDelete: Cascade)
+  withdrawals                AffiliateWithdrawal[]       @relation("WithdrawalPaymentMethod")
+  trainingWithdrawalRequests TrainingWithdrawalRequest[] @relation("TrainingWithdrawalPaymentMethod")
+
+  @@index([userId])
+  @@index([userId, isDefault])
+  @@index([userId, status])
+  @@index([type])
+  @@index([status])
+  @@map("user_payment_methods")
+}

@@ -1,0 +1,30 @@
+// ProductCoPurchase — Phase 37.5 per-tenant NPMI co-purchase neighbor table (RECSYS-37.5-02).
+// The collaborative arm mines co-purchase PAIRS from OrderDetail snapshot rows keyed by productId
+// (§22), deduping combo children by comboParentId, gated on OrderVat.status='completed' UNION
+// legacy Order.status. Scored by normalized PMI (NPMI) with a minimum co-occurrence floor — the
+// canonical Amazon item→item "heavy offline build, O(1) lookup" pattern.
+//
+// Tenant-scoped by businessId — co-purchase NEVER crosses tenants (the @@unique + @@index lead
+// with businessId). Bounded by distinct co-bought pairs (tens-of-thousands at SME scale — small).
+// Pairs are stored directed (productAId → productBId) by the sweep. Reusable by the admin pin
+// engine too. The cart "Thường được mua cùng" read (D-01, 37.5-05) keys this by current cart
+// productIds — UNION the neighbors, RRF, dedup — still zero-inference.
+
+model ProductCoPurchase {
+  id String @id @default(cuid())
+
+  // Multi-tenant scoping (nullable mirroring Order.businessId)
+  businessId String?
+
+  productAId String
+  productBId String
+
+  coCount Int
+  npmi    Float
+
+  lastSeenAt DateTime @default(now())
+
+  @@unique([businessId, productAId, productBId])
+  @@index([businessId, productAId])
+  @@map("product_co_purchases")
+}

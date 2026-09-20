@@ -1,0 +1,36 @@
+// User Point Transaction History
+// Track all point and exp rewards for users
+
+model UserPointTransaction {
+  id String @id @default(cuid())
+
+  // User who received the points
+  userId String
+  user   User   @relation("UserPointTransactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Points and Experience awarded
+  points Int @default(0) // Points awarded in this transaction
+  exp    Int @default(0) // Experience awarded in this transaction
+
+  // Task related (optional - can be null for non-task rewards)
+  taskId String?
+  task   Task?   @relation("TaskPointTransactions", fields: [taskId], references: [id], onDelete: SetNull)
+
+  // Activity type that triggered this reward (for reference)
+  activityType String? // e.g., "POST_CREATED", "SUBORDINATE_KYC_COMPLETED"
+
+  // Description of the transaction
+  description String? // e.g., "Completed daily task: Create 5 posts"
+
+  // Metadata for additional context
+  metadata Json? // Additional context like task progress, activity details, etc.
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("user_point_transactions")
+}

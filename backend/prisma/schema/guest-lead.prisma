@@ -1,0 +1,36 @@
+// Khách vãng lai chưa đăng nhập (thu thập để remarketing)
+model GuestLead {
+  id String @id @default(cuid())
+
+  // Thông tin liên hệ (tất cả tùy chọn)
+  email    String?
+  phone    String?
+  fullName String?
+
+  // Nguồn gốc
+  source   String? // "diadiem_web", "qr_scan", "offer_claim"
+  referrer String? // HTTP Referer
+
+  // UTM tracking
+  utmParams Json? // { source, medium, campaign, term, content }
+
+  // Kỹ thuật
+  ipAddress String?
+  userAgent String?
+
+  // Thời gian
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  // Quan hệ
+  checkIns WarehouseCheckIn[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([phone])
+  @@index([source])
+  @@index([firstSeenAt])
+  @@map("guest_leads")
+}

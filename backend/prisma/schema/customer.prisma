@@ -1,0 +1,62 @@
+model Customer {
+  id String @id @default(cuid())
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietCustomerId   Int?    @unique // ID khách hàng từ KiotViet
+  kiotVietCustomerCode String? @unique // Mã khách hàng từ KiotViet
+
+  // Thông tin khách hàng
+  taxCode  String? // Mã số thuế
+  comments String? // Ghi chú
+  source   OriginSource @default(acta) // Nguồn gốc
+
+  // Metrics - Các chỉ số
+  rewardPoint  Int? @default(0) // Điểm thưởng
+  psidFacebook Int? // PSID Facebook
+
+  // Relationships
+  userId String? @unique // nullable cause they may come from other sources
+  user   User?   @relation("UserCustomer", fields: [userId], references: [id])
+
+  customerGroupId String?
+  customerGroup   CustomerGroup? @relation("CustomerGroupCustomers", fields: [customerGroupId], references: [id])
+
+  // Multi-tenant scoping
+  businessId String?
+  business   Business? @relation("BusinessCustomers", fields: [businessId], references: [id], onDelete: SetNull)
+
+  orders   Order[]
+  invoices Invoice[]
+
+  // Phase 37.5: precomputed per-customer recommendation list (RECSYS-37.5-01; onDelete Cascade)
+  recommendations CustomerProductRecommendation[] @relation("CustomerRecommendations")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kiotVietCustomerId])
+  @@index([userId])
+  @@index([customerGroupId])
+  @@index([businessId])
+  @@map("customers")
+}
+
+model CustomerGroup {
+  id String @id @default(cuid())
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietCustomerGroupId Int? @unique // ID nhóm khách hàng từ KiotViet
+
+  // Thông tin nhóm khách hàng
+  name String // Tên nhóm khách hàng
+
+  // Relationships
+  customers  Customer[]  @relation("CustomerGroupCustomers")
+  priceBooks PriceBook[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kiotVietCustomerGroupId])
+  @@map("customer_groups")
+}

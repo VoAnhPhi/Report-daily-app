@@ -1,0 +1,24 @@
+// Lịch sử xem gần đây — upsert-theo-lần-xem để giữ bảng giới hạn
+//
+// ⚠ Trước 07/09/2026 đây là bảng lượt xem của "địa điểm kinh doanh".
+// Tách khỏi `saved-place.prisma` cùng lúc với lần đổi neo sang `Warehouse`:
+// "đã xem" và "đã lưu" là hai vòng đời khác nhau (một cái tự sinh, một cái do
+// người dùng chủ động), để chung một tệp chỉ khiến người đọc tưởng chúng liên
+// quan tới nhau.
+model WarehouseView {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  viewedAt DateTime @default(now())
+
+  // Mỗi user chỉ giữ 1 bản ghi cho mỗi điểm cầu — upsert để cập nhật viewedAt
+  @@unique([userId, warehouseId])
+  @@index([userId, viewedAt(sort: Desc)])
+  @@index([warehouseId])
+  @@map("warehouse_views")
+}

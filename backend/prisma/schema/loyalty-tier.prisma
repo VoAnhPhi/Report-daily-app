@@ -1,0 +1,38 @@
+// Loyalty tier configuration — defines named tiers for the ACTA points/reward system.
+// Seeded with 3 canonical tiers via migration 30-02 inline INSERT.
+//
+// CHECK constraint (pointsPer1000VND IS NOT NULL OR multiplier IS NOT NULL)
+// is enforced in migration SQL only — Prisma cannot express CHECK constraints.
+// A row with both fields NULL is invalid and will be rejected at DB level.
+//
+// Tier semantics (seeded 18 / x2 / 5, halved by migration 79, then aligned with
+// the backend constants by migrations 20260907130000 and 20260907140000):
+//   uu-tien    (Ưu tiên)   - fixed 9 points per 1000 VND spent
+//   uu-dai     (Ưu đãi)    - fixed 6 points per 1000 VND spent
+//   thong-dung (Thông dụng) - fixed 3 points per 1000 VND spent
+//
+// All three are fixed rates now; no tier uses `multiplier`. The column is kept
+// for future use and both clients still render a `xN` label if one appears.
+//
+// DISPLAY ONLY. These values do NOT drive point earning. Order points come from
+// Product.flag via GamificationService.calculateOrderPoints (regular 3 / special 6
+// / priority 9). Keep them in sync with those constants, not the other way round.
+
+model LoyaltyTierConfig {
+  id               String  @id @default(cuid())
+  tierKey          String  @unique // "uu-tien" | "uu-dai" | "thong-dung"
+  displayName      String // "Ưu tiên" | "Ưu đãi" | "Thông dụng"
+  displayColor     String? // hex color for UI chip
+  pointsPer1000VND Float? // fixed points per 1000 VND (null for multiplier tiers)
+  multiplier       Float? // point multiplier (null for fixed-point tiers)
+  sortOrder        Int     @default(0)
+  isActive         Boolean @default(true)
+  iconKey          String?
+
+  // CHECK constraint (pointsPer1000VND IS NOT NULL OR multiplier IS NOT NULL)
+  // enforced in migration SQL only — Prisma cannot express CHECK constraints.
+
+  @@index([tierKey])
+  @@index([isActive])
+  @@map("loyalty_tier_configs")
+}

@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> DRAFT: tạo bản
+  DRAFT --> SUBMITTED: nộp lần đầu
+  SUBMITTED --> REOPENED: mở lại hoặc bị trả
+  REOPENED --> SUBMITTED: sửa và nộp lại
+  DRAFT --> ARCHIVED: lưu trữ
+  SUBMITTED --> ARCHIVED: lưu trữ
+  REOPENED --> ARCHIVED: lưu trữ

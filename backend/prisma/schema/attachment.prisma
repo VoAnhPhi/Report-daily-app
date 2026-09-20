@@ -1,0 +1,33 @@
+model Attachment {
+  id               String    @id @default(uuid())
+  fileName         String    @db.VarChar(255)
+  mimeType         String
+  originalFileName String    @db.VarChar(255)
+  fileUrl          String    @db.VarChar(1024)
+  fileSize         Int? // File size in bytes
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  // Profile image relations
+  userAvatar      User?   @relation("UserAvatar")
+  userCover       User?   @relation("UserCover")
+  oldAvatarUserId String?
+  oldAvatarUser   User?   @relation("UserOldAvatars", fields: [oldAvatarUserId], references: [id])
+  oldCoverUserId  String?
+  oldCoverUser    User?   @relation("UserOldCovers", fields: [oldCoverUserId], references: [id])
+
+  documentThumbnail Document? @relation("DocumentThumbnail")
+
+  documentId         String?
+  documentAttachment Document? @relation("DocumentAttachments", fields: [documentId], references: [id])
+
+  // Phase 80 D-03 (VOUCHER-08) — salary disbursement voucher documents (named per-owner back-relation)
+  salaryVoucherId         String?
+  salaryVoucherAttachment SalaryDisbursementVoucher? @relation("SalaryVoucherDocuments", fields: [salaryVoucherId], references: [id])
+
+  // 🔗 One-to-one relation to message (each message can have at most 1 attachment)
+  message Message? @relation("MessageAttachment")
+
+  @@map("attachments")
+}

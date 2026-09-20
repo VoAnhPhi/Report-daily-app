@@ -1,0 +1,89 @@
+// Search-intelligence persistence (durable "self-training" data).
+//
+// Three tables back the learning loop that makes storefront search smarter
+// over time. They are deliberately decoupled from Product via LOOSE foreign
+// keys (a bare productId string, no Prisma relation) — the same pattern as
+// Product.loyaltyTierKey — because:
+//   1. Ranking joins these by productId in raw SQL, not through Prisma.
+//   2. A relation would force back-relation arrays onto the hot Product model
+//      and add join overhead to every product fetch.
+// Orphaned rows (product deleted) are pruned by SearchLearningService's cron.
+
+/// What a recorded search interaction represents. Drives the engagement
+/// weighting in SearchLearningService (purchase > add_to_cart > click >
+/// impression).
+enum SearchEventType {
+  impression
+  click
+  add_to_cart
+  purchase
+}
+
+/// Raw, append-only log of "user searched Q and interacted with product P".
+/// This is the training data; aggregates (SearchQueryProductScore,
+/// Product.popularityScore) are derived from it nightly and can always be
+/// rebuilt by replaying this table.
+model SearchEvent {
+  id              String          @id @default(cuid())
+  /// normalizeSearchQuery() output — lower + unaccent + collapsed whitespace.
+  /// MUST match the normalization used by the ranking join and the job.
+  queryNormalized String
+  /// Original text as typed, kept only for alias mining / debugging.
+  queryRaw        String?
+  /// Loose FK to products.id (no relation — see file header).
+  productId       String?
+  eventType       SearchEventType
+  /// Anonymous client/session id (no user linkage stored).
+  sessionId       String?
+  createdAt       DateTime        @default(now())
+
+  @@index([queryNormalized, eventType])
+  @@index([productId, eventType, createdAt])
+  @@index([createdAt])
+  @@map("search_events")
+}
+
+/// Learned query rewrites. Maps a "weird" input (typo, no-diacritic,
+/// no-space, gibberish) to the canonical terms that actually find products.
+/// Populated by Tier 5 (Claude) and reused forever after — once an alias
+/// exists the expensive LLM call is skipped. `source` lets ops curate
+/// manual overrides that outrank machine guesses.
+model SearchAlias {
+  id              String    @id @default(cuid())
+  /// normalizeSearchQuery() of the raw user input. Unique = one canonical
+  /// resolution per normalized query.
+  queryNormalized String    @unique
+  /// Canonical query string to re-run lexical search with.
+  resolvedQuery   String
+  /// Extra expansion tokens (synonyms / brand / category words).
+  keywords        String[]  @default([])
+  /// claude | manual | learned. Manual overrides are never auto-evicted.
+  source          String    @default("claude")
+  confidence      Float?
+  hitCount        Int       @default(0)
+  lastUsedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([source])
+  @@map("search_aliases")
+}
+
+/// Per-(query, product) engagement score, time-decayed. Recomputed nightly
+/// from SearchEvent. The ranking SQL LEFT JOINs this on (queryNormalized,
+/// productId) so products people actually click/buy for a query float up —
+/// this is the core "search learns from behavior" signal.
+model SearchQueryProductScore {
+  id              String   @id @default(cuid())
+  queryNormalized String
+  /// Loose FK to products.id (no relation — see file header).
+  productId       String
+  /// 0..1 normalized within the query's product set after time decay.
+  score           Float    @default(0)
+  updatedAt       DateTime @updatedAt
+
+  @@unique([queryNormalized, productId])
+  @@index([queryNormalized])
+  @@index([productId])
+  @@map("search_query_product_scores")
+}

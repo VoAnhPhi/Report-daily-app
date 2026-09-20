@@ -1,0 +1,1180 @@
+// ==================== GAMIFICATION SYSTEM ====================
+// Activity Points, Tasks, Achievements, Streaks, and Progression System
+
+// ==================== ENUMS ====================
+
+enum TaskType {
+  daily // Resets every day
+  daily_new // Creates new task each day with different title
+  weekly // Resets every week
+  monthly // Resets every month
+  one_time // Can only be completed once
+  repeatable // Can be completed multiple times
+  milestone // Achievement-based (e.g., "Reach 100 posts")
+}
+
+enum TaskStatus {
+  active // Available for users
+  inactive // Not available
+  scheduled // Will be active in the future
+  expired // Past expiration date
+  archived // No longer available
+}
+
+enum UserTaskStatus {
+  not_started // User hasn't started
+  in_progress // User is working on it
+  completed // User completed it
+  claimed // User claimed the reward
+  expired // Task expired before completion
+  pending_verification // Waiting for admin verification
+  rejected // Admin rejected the submission
+  waiting_fix // Admin rejected, waiting for user to fix
+}
+
+enum AchievementType {
+  bronze
+  silver
+  gold
+  platinum
+  diamond
+  legendary
+}
+
+enum AchievementCategory {
+  social // Posts, comments, reactions
+  commerce // Orders, purchases
+  engagement // Logins, streaks
+  learning // Documents, courses
+  community // Forum, helping others
+  special // Limited time, events
+  progression // Leveling up
+}
+
+enum PointTransactionType {
+  earn // Earned points
+  spend // Spent points
+  bonus // Bonus points
+  penalty // Lost points
+  admin_adjustment // Admin adjustment
+  expired // Points expired
+}
+
+enum StreakType {
+  login // Daily login streak
+  post // Daily post streak
+  order // Weekly order streak
+  learning // Daily learning streak
+}
+
+// ==================== TASK SYSTEM ====================
+
+model TaskCategory {
+  id          String  @id @default(cuid())
+  name        String  @unique // "Daily Quests", "Weekly Challenges", "Milestones"
+  slug        String  @unique
+  description String?
+  icon        String? // Icon URL or emoji
+  color       String? // Hex color code
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  tasks Task[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("task_categories")
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  code        String     @unique // "DAILY_LOGIN", "POST_5_TIMES"
+  title       String // "Login Daily", "Create 5 Posts"
+  description String?    @db.Text
+  icon        String? // Icon URL or emoji
+  type        TaskType
+  status      TaskStatus @default(active)
+
+  // Category
+  categoryId String
+  category   TaskCategory @relation(fields: [categoryId], references: [id])
+
+  // Requirements & Progress
+  targetCount           Int      @default(1) // How many times to complete (e.g., "Post 5 times")
+  requiredActivityTypes String[] // ActivityTypes from ActivityLog that count toward this task
+
+  // Conditions (JSON for flexibility)
+  conditions Json? // E.g., {"minOrderAmount": 100000, "productCategories": ["cat1", "cat2"]}
+
+  // Rewards
+  pointReward          Int      @default(0) // Points earned on completion
+  bonusPointMultiplier Decimal  @default(1) @db.Decimal(5, 2) // Multiplier for bonus events
+  experienceReward     Int      @default(0) // XP earned
+  achievementRewardIds String[] // Achievement IDs to unlock
+
+  // Time constraints
+  startDate     DateTime? // When task becomes available
+  endDate       DateTime? // When task expires
+  cooldownHours Int? // Hours before can be repeated (for repeatable tasks)
+
+  // Activity time windows (JSON format for flexibility)
+  // Example: {"type": "time_range", "start": "22:00", "end": "06:00"} for "after 10 PM to before 6 AM"
+  // Example: {"type": "before_time", "time": "07:00"} for "before 7 AM"
+  // Example: {"type": "after_time", "time": "22:00"} for "after 10 PM"
+  timeWindow Json? // Time window constraints for task activity
+
+  // Visibility & Access
+  isPublic      Boolean @default(true) // Visible to all users
+  minUserLevel  Int     @default(1) // Minimum level required
+  requiredRoles Role[] // Roles allowed to access
+
+  // Metadata
+  participantCount Int     @default(0) // How many users have this task
+  completionCount  Int     @default(0) // How many times completed total
+  completionRate   Decimal @default(0) @db.Decimal(5, 2) // Percentage of users who completed
+
+  // Relations
+  userTasks         UserTask[]             @relation
+  pointTransactions UserPointTransaction[] @relation("TaskPointTransactions")
+
+  createdById String
+  createdBy   User   @relation("TaskCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([type])
+  @@index([status])
+  @@index([categoryId])
+  @@index([startDate])
+  @@index([endDate])
+  @@map("tasks")
+}
+
+model UserTask {
+  id     String         @id @default(cuid())
+  userId String
+  user   User           @relation("UserTasks", fields: [userId], references: [id], onDelete: Cascade)
+  taskId String
+  task   Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  status UserTaskStatus @default(not_started)
+
+  // Progress tracking
+  currentCount Int @default(0) // Current progress (e.g., "Posted 3 out of 5 times")
+  targetCount  Int // Snapshot of task.targetCount at assignment time
+
+  // Completion tracking
+  startedAt   DateTime? // When user started working on it
+  completedAt DateTime? // When user completed it
+  claimedAt   DateTime? // When user claimed the reward
+  expiresAt   DateTime? // When it expires (for time-limited tasks)
+
+  // Verification tracking (for proof-based tasks)
+  verifiedAt     DateTime? // When admin verified the task
+  verifiedBy     String? // Admin ID who verified
+  verifiedByUser User?     @relation("TaskVerifiedBy", fields: [verifiedBy], references: [id])
+
+  // Rewards received
+  pointsEarned     Int     @default(0)
+  experienceEarned Int     @default(0)
+  bonusMultiplier  Decimal @default(1) @db.Decimal(5, 2)
+
+  // Metadata
+  attemptNumber Int   @default(1) // For repeatable tasks
+  metadata      Json? // Additional tracking data
+
+  // Relations
+  pointTransactions ActivityPointTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Unique constraint: mỗi user chỉ có 1 task instance cho mỗi ngày (startedAt)
+  // Không dùng attemptNumber vì dayNumber (1-31) sẽ bị trùng khi qua tháng mới
+  @@index([userId])
+  @@index([taskId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([userId, status])
+  @@index([taskId, status])
+  @@index([completedAt])
+  @@index([claimedAt])
+  @@map("user_tasks")
+}
+
+// ==================== ACHIEVEMENT SYSTEM ====================
+
+model Achievement {
+  id          String              @id @default(cuid())
+  code        String              @unique // "FIRST_POST", "MASTER_SHOPPER"
+  name        String // "First Steps", "Shopping Master"
+  description String              @db.Text
+  icon        String? // Icon URL
+  badge       String? // Badge image URL
+  type        AchievementType
+  category    AchievementCategory
+
+  // Progression (for tiered achievements)
+  tier            Int     @default(1) // 1, 2, 3, etc.
+  previousTierId  String? // ID of previous tier achievement
+  nextTierId      String? // ID of next tier achievement
+  isProgressBased Boolean @default(false) // Has multiple tiers
+
+  // Requirements
+  requiredCount         Int      @default(1) // How many times action needed
+  requiredActivityTypes String[] // Activities that count toward this
+  requiredTaskIds       String[] // Tasks that must be completed
+  conditions            Json? // Additional conditions
+
+  // Rewards
+  pointReward      Int     @default(0)
+  experienceReward Int     @default(0)
+  badgeUrl         String? // Special badge image
+  title            String? // Special title/badge user can display
+
+  // Visibility
+  isHidden  Boolean @default(false) // Hidden until unlocked
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  rarity    String? // "common", "rare", "epic", "legendary"
+
+  // Stats
+  unlockedCount Int     @default(0) // How many users unlocked this
+  unlockRate    Decimal @default(0) @db.Decimal(5, 2) // Percentage of users
+
+  // Relations
+  userAchievements UserAchievement[]
+
+  createdById String
+  createdBy   User   @relation("AchievementCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([type])
+  @@index([category])
+  @@index([isActive])
+  @@index([tier])
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation("UserAchievements", fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  // Progress tracking
+  currentProgress Int     @default(0) // Progress toward next tier
+  targetProgress  Int // Target to unlock this achievement
+  progressPercent Decimal @default(0) @db.Decimal(5, 2)
+
+  // Unlock info
+  unlockedAt DateTime? // When achievement was unlocked
+  isUnlocked Boolean   @default(false)
+
+  // Display settings
+  isPinned    Boolean @default(false) // User pinned this achievement
+  isDisplayed Boolean @default(false) // Display on profile
+
+  // Metadata
+  metadata Json? // Additional data
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@index([achievementId])
+  @@index([isUnlocked])
+  @@map("user_achievements")
+}
+
+// ==================== POINTS & EXPERIENCE SYSTEM ====================
+
+model UserActivityStats {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation("UserActivityStats", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Points & Experience
+  totalPoints      Int @default(0) // All-time points
+  currentPoints    Int @default(0) // Available points (after spending)
+  spentPoints      Int @default(0) // Points spent
+  totalExperience  Int @default(0) // Total XP
+  currentLevel     Int @default(1) // User level
+  experienceToNext Int @default(100) // XP needed for next level
+
+  // Periodic Points (for leaderboards)
+  dailyPoints   Int @default(0)
+  weeklyPoints  Int @default(0)
+  monthlyPoints Int @default(0)
+  yearlyPoints  Int @default(0)
+
+  // Periodic Activity Counts
+  dailyActivities   Int @default(0)
+  weeklyActivities  Int @default(0)
+  monthlyActivities Int @default(0)
+  yearlyActivities  Int @default(0)
+
+  // Streaks
+  currentLoginStreak Int       @default(0) // Consecutive days logged in
+  longestLoginStreak Int       @default(0)
+  lastLoginDate      DateTime? // For tracking streaks
+  currentPostStreak  Int       @default(0)
+  longestPostStreak  Int       @default(0)
+  lastPostDate       DateTime?
+  currentOrderStreak Int       @default(0) // Weekly orders
+  longestOrderStreak Int       @default(0)
+  lastOrderDate      DateTime?
+  streakFreezeCount  Int       @default(0) // Streak freeze items available
+
+  // Reset timestamps (for periodic stats)
+  lastDailyReset   DateTime @default(now())
+  lastWeeklyReset  DateTime @default(now())
+  lastMonthlyReset DateTime @default(now())
+  lastYearlyReset  DateTime @default(now())
+
+  // Achievements & Tasks
+  achievementsUnlocked Int @default(0)
+  tasksCompleted       Int @default(0)
+  dailyTasksCompleted  Int @default(0)
+  weeklyTasksCompleted Int @default(0)
+
+  // Rankings (updated periodically)
+  globalRank  Int? // Overall ranking
+  dailyRank   Int? // Daily leaderboard
+  weeklyRank  Int? // Weekly leaderboard
+  monthlyRank Int? // Monthly leaderboard
+
+  // Metadata
+  metadata Json? // Additional stats
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([totalPoints])
+  @@index([currentLevel])
+  @@index([currentLoginStreak])
+  @@index([globalRank])
+  @@index([weeklyPoints])
+  @@index([monthlyPoints])
+  @@index([dailyRank])
+  @@index([weeklyRank])
+  @@index([monthlyRank])
+  @@index([updatedAt])
+  @@map("user_activity_stats")
+}
+
+model ActivityPointTransaction {
+  id     String               @id @default(cuid())
+  userId String
+  user   User                 @relation("UserActivityPoints", fields: [userId], references: [id], onDelete: Cascade)
+  type   PointTransactionType
+
+  // Transaction details
+  points     Int // Amount (can be negative for spending)
+  balance    Int // Balance after transaction
+  experience Int     @default(0) // XP gained (if applicable)
+  multiplier Decimal @default(1) @db.Decimal(5, 2) // Bonus multiplier applied
+
+  // Source tracking
+  sourceType String // "task", "achievement", "activity", "admin", "purchase"
+  sourceId   String? // ID of the source (task, achievement, etc.)
+  sourceName String? // Name for display
+
+  // Activity reference (if from platform activity)
+  activityLogId String? // Reference to ActivityLog
+  activityType  String? // ActivityType enum value
+
+  // Task/Achievement reference
+  taskId        String? // If earned from task (reference to Task)
+  userTaskId    String? // If earned from user task (reference to UserTask - specific instance of task for user)
+  userTask      UserTask? @relation(fields: [userTaskId], references: [id], onDelete: SetNull)
+  achievementId String? // If earned from achievement
+
+  // Bonus & Events
+  isBonusEvent Boolean @default(false)
+  bonusReason  String? // "double_points_weekend", "special_event"
+
+  // Description & Notes
+  description String? // Human-readable description
+  metadata    Json? // Additional data
+
+  // Admin actions
+  adminId   String? // If manually adjusted by admin
+  adminNote String? // Admin note for adjustment
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+  @@index([sourceType])
+  @@index([taskId])
+  @@index([userTaskId])
+  @@index([achievementId])
+  @@index([createdAt])
+  @@index([userId, sourceType, createdAt]) // HARD-04: backs the per-day training-points cap aggregate (sourceType-scoped same-day sum)
+  @@map("activity_point_transactions")
+}
+
+// ==================== STREAK TRACKING ====================
+
+model UserStreak {
+  id         String     @id @default(cuid())
+  userId     String
+  user       User       @relation("UserStreaks", fields: [userId], references: [id], onDelete: Cascade)
+  streakType StreakType
+
+  // Streak data
+  currentStreak  Int       @default(0)
+  longestStreak  Int       @default(0)
+  lastActiveDate DateTime? // Last date streak was maintained
+
+  // Milestones
+  milestoneHits Int @default(0) // How many times hit milestones (7, 30, 100 days, etc.)
+  lastMilestone Int @default(0) // Last milestone reached
+  nextMilestone Int @default(7) // Next milestone to reach
+
+  // Rewards
+  totalRewardsEarned Int @default(0) // Total rewards from this streak
+
+  // Freeze & Recovery
+  freezesAvailable Int       @default(0) // Streak freezes available
+  freezesUsed      Int       @default(0)
+  lastFreezeDate   DateTime?
+
+  // Status
+  isActive Boolean   @default(true)
+  isBroken Boolean   @default(false)
+  brokenAt DateTime?
+
+  // Metadata
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, streakType])
+  @@index([userId])
+  @@index([streakType])
+  @@index([currentStreak])
+  @@map("user_streaks")
+}
+
+// ==================== LEADERBOARD ====================
+
+model Leaderboard {
+  id        String    @id @default(cuid())
+  name      String // "Daily Points", "Weekly Tasks", "Monthly Achievers"
+  slug      String    @unique
+  type      String // "daily", "weekly", "monthly", "all_time"
+  metric    String // "points", "tasks", "achievements", "streak"
+  isActive  Boolean   @default(true)
+  startDate DateTime
+  endDate   DateTime?
+
+  entries LeaderboardEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([type])
+  @@index([isActive])
+  @@map("leaderboards")
+}
+
+model LeaderboardEntry {
+  id            String      @id @default(cuid())
+  leaderboardId String
+  leaderboard   Leaderboard @relation(fields: [leaderboardId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation("UserLeaderboardEntries", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Ranking
+  rank         Int
+  previousRank Int?
+  score        Int // Points, tasks completed, etc.
+
+  // Display info (snapshot)
+  userDisplayName String
+  userAvatar      String?
+  userLevel       Int
+
+  // Metadata
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([leaderboardId, userId])
+  @@index([leaderboardId])
+  @@index([userId])
+  @@index([rank])
+  @@map("leaderboard_entries")
+}
+
+// ==================== LEVEL SYSTEM ====================
+
+model LevelConfiguration {
+  id             String @id @default(cuid())
+  level          Int    @unique // Level number
+  experienceFrom Int // XP required to reach this level
+  experienceTo   Int // XP required to reach next level
+
+  // Rewards for reaching this level
+  pointReward     Int      @default(0)
+  title           String? // Special title unlocked
+  perks           Json? // Special perks/benefits
+  unlocksFeatures String[] // Feature IDs unlocked at this level
+
+  // Display
+  displayName String? // "Novice", "Expert", "Master"
+  icon        String?
+  color       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([level])
+  @@map("level_configurations")
+}
+
+// ==================== EVENT SYSTEM ====================
+
+model GamificationEvent {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String? @db.Text
+  type        String // "double_points", "special_tasks", "limited_achievement"
+
+  // Multipliers
+  pointMultiplier      Decimal @default(1) @db.Decimal(5, 2)
+  experienceMultiplier Decimal @default(1) @db.Decimal(5, 2)
+
+  // Scope
+  appliesToAllTasks      Boolean  @default(false)
+  appliesToTaskIds       String[] // Specific tasks
+  appliesToActivityTypes String[] // Specific activities
+
+  // Time
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+
+  // Stats
+  participantCount Int @default(0)
+
+  createdById String
+  createdBy   User   @relation("GamificationEventCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+  @@index([startDate])
+  @@index([endDate])
+  @@map("gamification_events")
+}
+
+// ==================== POINT SHOP SYSTEM ====================
+
+enum ShopItemType {
+  cosmetic // Avatars, badges, themes
+  utility // Streak freezes, point multipliers
+  title // Custom titles
+  boost // Temporary boosts
+  voucher // Discount codes
+  physical // Physical rewards
+}
+
+enum ShopItemRarity {
+  common
+  uncommon
+  rare
+  epic
+  legendary
+}
+
+model ShopItem {
+  id          String         @id @default(cuid())
+  code        String         @unique
+  name        String
+  description String?        @db.Text
+  type        ShopItemType
+  rarity      ShopItemRarity @default(common)
+
+  // Pricing
+  pointCost           Int // Points required to purchase
+  maxPurchasesPerUser Int? // Limit purchases per user (null = unlimited)
+
+  // Stock management
+  totalStock   Int? // null = unlimited
+  currentStock Int? // Current available stock
+  isLimited    Boolean @default(false)
+
+  // Media
+  imageUrl     String?
+  thumbnailUrl String?
+
+  // Availability
+  isActive  Boolean   @default(true)
+  startDate DateTime? // When item becomes available
+  endDate   DateTime? // When item expires
+
+  // Metadata
+  category  String? // For filtering (e.g., "avatars", "titles", "boosts")
+  tags      String[] // Additional tags
+  sortOrder Int      @default(0)
+
+  // Item effects (JSON for flexibility)
+  effects Json? // e.g., {"streakFreeze": 1, "pointMultiplier": 1.5, "duration": 7}
+
+  // Stats
+  totalPurchases Int @default(0)
+  revenue        Int @default(0) // Total points earned from sales
+
+  // Relations
+  purchases     ShopPurchase[]
+  userInventory UserInventory[]
+
+  createdById String
+  createdBy   User   @relation("ShopItemCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([type])
+  @@index([rarity])
+  @@index([isActive])
+  @@index([pointCost])
+  @@map("shop_items")
+}
+
+model ShopPurchase {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation("ShopPurchases", fields: [userId], references: [id], onDelete: Cascade)
+  itemId String
+  item   ShopItem @relation(fields: [itemId], references: [id])
+
+  // Purchase details
+  pointsSpent Int
+  quantity    Int @default(1)
+
+  // Status
+  status       String    @default("completed") // "completed", "pending", "refunded"
+  isRefunded   Boolean   @default(false)
+  refundedAt   DateTime?
+  refundReason String?
+
+  // Delivery (for physical items)
+  deliveryStatus  String? // "pending", "shipped", "delivered"
+  trackingNumber  String?
+  shippingAddress Json?
+
+  // Metadata
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([itemId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("shop_purchases")
+}
+
+model UserInventory {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation("UserInventory", fields: [userId], references: [id], onDelete: Cascade)
+  itemId String
+  item   ShopItem @relation(fields: [itemId], references: [id])
+
+  // Inventory details
+  quantity   Int     @default(1)
+  isEquipped Boolean @default(false) // For cosmetic items
+  isActive   Boolean @default(false) // For active boosts/effects
+
+  // Effects tracking
+  effectExpiresAt DateTime? // For time-limited effects
+  effectUsedAt    DateTime? // When effect was activated
+
+  // Metadata
+  metadata Json?
+
+  acquiredAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, itemId])
+  @@index([userId])
+  @@index([itemId])
+  @@index([isEquipped])
+  @@index([isActive])
+  @@map("user_inventory")
+}
+
+// ==================== USER TITLES SYSTEM ====================
+
+enum TitleRarity {
+  common
+  uncommon
+  rare
+  epic
+  legendary
+  mythic
+}
+
+model UserTitle {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  name        String // "The Unstoppable", "Shopping Legend", "Master Trader"
+  description String?     @db.Text
+  rarity      TitleRarity @default(common)
+
+  // Display
+  color         String? // Hex color code
+  icon          String? // Icon URL or emoji
+  displayFormat String? // Template for displaying (e.g., "{username} the Great")
+
+  // Requirements
+  requiredLevel          Int? // Minimum level required
+  requiredAchievementIds String[] // Achievements needed
+  requiredPoints         Int? // Minimum points needed
+  conditions             Json? // Additional conditions
+
+  // Availability
+  isActive      Boolean @default(true)
+  isPurchasable Boolean @default(false) // Can be bought from shop
+  pointCost     Int? // Cost if purchasable
+  isLimited     Boolean @default(false) // Limited availability
+  maxOwners     Int? // Maximum users who can have this title
+
+  // Stats
+  totalOwners   Int @default(0)
+  currentOwners Int @default(0)
+
+  // Relations
+  userTitles UserTitleProgress[]
+
+  createdById String
+  createdBy   User   @relation("UserTitleCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([rarity])
+  @@index([isActive])
+  @@map("user_titles")
+}
+
+model UserTitleProgress {
+  id      String    @id @default(cuid())
+  userId  String
+  user    User      @relation("UserTitleProgress", fields: [userId], references: [id], onDelete: Cascade)
+  titleId String
+  title   UserTitle @relation(fields: [titleId], references: [id])
+
+  // Progress & Unlock
+  isUnlocked Boolean   @default(false)
+  unlockedAt DateTime?
+  progress   Decimal   @default(0) @db.Decimal(5, 2) // Progress percentage
+
+  // Display
+  isEquipped   Boolean @default(false) // Currently displayed title
+  displayOrder Int     @default(0) // Order in user's title collection
+
+  // Metadata
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, titleId])
+  @@index([userId])
+  @@index([titleId])
+  @@index([isUnlocked])
+  @@index([isEquipped])
+  @@map("user_title_progress")
+}
+
+// ==================== REFERRAL SYSTEM ====================
+
+enum ReferralStatus {
+  pending // Referral sent, not yet signed up
+  completed // Referred user signed up
+  rewarded // Rewards distributed
+  expired // Referral expired
+}
+
+model Referral {
+  id String @id @default(cuid())
+
+  // Referrer info
+  referrerId   String
+  referrer     User   @relation("ReferralsMade", fields: [referrerId], references: [id], onDelete: Cascade)
+  referralCode String @unique // Unique code for this user
+
+  // Referred user
+  referredUserId String? @unique
+  referredUser   User?   @relation("ReferralReceived", fields: [referredUserId], references: [id], onDelete: SetNull)
+
+  // Status
+  status ReferralStatus @default(pending)
+
+  // Tracking
+  referredUserEmail String? // Email of referred user before signup
+  signupCompletedAt DateTime? // When referred user signed up
+  rewardedAt        DateTime? // When rewards were given
+
+  // Rewards
+  referrerRewardPoints     Int      @default(0)
+  referredUserRewardPoints Int      @default(0)
+  referrerBonusItems       String[] // Item IDs given as bonus
+
+  // Metadata
+  source   String? // "email", "social", "link"
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([referrerId])
+  @@index([referredUserId])
+  @@index([referralCode])
+  @@index([status])
+  @@map("referrals")
+}
+
+// ==================== SOCIAL FEATURES ====================
+
+enum ChallengeType {
+  points // Earn most points
+  tasks // Complete most tasks
+  achievements // Unlock most achievements
+  streak // Maintain longest streak
+  custom // Custom challenge
+}
+
+enum ChallengeStatus {
+  upcoming // Not yet started
+  active // In progress
+  completed // Finished
+  cancelled // Cancelled by creator
+}
+
+model Challenge {
+  id          String          @id @default(cuid())
+  code        String          @unique
+  name        String
+  description String?         @db.Text
+  type        ChallengeType
+  status      ChallengeStatus @default(upcoming)
+
+  // Challenge details
+  targetValue Int // Goal to reach (e.g., 1000 points)
+  metric      String // What to measure
+
+  // Time frame
+  startDate DateTime
+  endDate   DateTime
+  duration  Int? // Duration in hours
+
+  // Participation
+  isPublic        Boolean @default(true)
+  maxParticipants Int? // Limit participants
+  minLevel        Int     @default(1) // Minimum level to join
+  entryFee        Int? // Points required to enter
+
+  // Rewards
+  rewardPoints Int      @default(0)
+  rewardItems  String[] // Item IDs as rewards
+  rewardTitles String[] // Title IDs as rewards
+
+  // Winner rewards (top 3)
+  firstPlaceReward  Json?
+  secondPlaceReward Json?
+  thirdPlaceReward  Json?
+
+  // Stats
+  participantCount Int @default(0)
+
+  // Relations
+  participants ChallengeParticipant[]
+  createdById  String
+  createdBy    User                   @relation("ChallengesCreated", fields: [createdById], references: [id])
+
+  // Metadata
+  rules    Json? // Challenge rules
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([type])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([isPublic])
+  @@map("challenges")
+}
+
+model ChallengeParticipant {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("ChallengeParticipants", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Progress
+  currentValue Int  @default(0) // Current progress toward goal
+  rank         Int? // Current ranking
+
+  // Completion
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+
+  // Rewards
+  isRewarded       Boolean   @default(false)
+  rewardsClaimed   Boolean   @default(false)
+  rewardsClaimedAt DateTime?
+
+  // Metadata
+  metadata Json?
+
+  joinedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([challengeId, userId])
+  @@index([challengeId])
+  @@index([userId])
+  @@index([rank])
+  @@index([isCompleted])
+  @@map("challenge_participants")
+}
+
+// ==================== SEASONAL LEADERBOARDS ====================
+
+enum SeasonStatus {
+  upcoming
+  active
+  ended
+  archived
+}
+
+model Season {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String // "Summer 2025", "Winter Championship"
+  description String? @db.Text
+
+  // Time frame
+  startDate DateTime
+  endDate   DateTime
+  status    SeasonStatus @default(upcoming)
+
+  // Theme
+  theme  Json? // Visual theme, colors, icons
+  banner String? // Banner image URL
+
+  // Rewards
+  rewards Json? // Reward structure for different ranks
+
+  // Stats
+  participantCount Int @default(0)
+
+  // Relations
+  leaderboards SeasonLeaderboard[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@map("seasons")
+}
+
+model SeasonLeaderboard {
+  id       String @id @default(cuid())
+  seasonId String
+  season   Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  name   String
+  metric String // "points", "tasks", "achievements"
+
+  // Entries
+  entries SeasonLeaderboardEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([seasonId])
+  @@map("season_leaderboards")
+}
+
+model SeasonLeaderboardEntry {
+  id            String            @id @default(cuid())
+  leaderboardId String
+  leaderboard   SeasonLeaderboard @relation(fields: [leaderboardId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User              @relation("SeasonLeaderboardEntries", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Ranking
+  rank  Int
+  score Int
+
+  // Rewards
+  rewardsClaimed   Boolean   @default(false)
+  rewardsClaimedAt DateTime?
+
+  // Display
+  userDisplayName String
+  userAvatar      String?
+  userLevel       Int
+
+  // Metadata
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([leaderboardId, userId])
+  @@index([leaderboardId])
+  @@index([userId])
+  @@index([rank])
+  @@map("season_leaderboard_entries")
+}
+
+// ==================== COMPLETION REQUIREMENTS ====================
+
+enum RequirementType {
+  manual // Admin manually toggles per user
+  auto_computed // System auto-computes from data (e.g., revenue threshold)
+}
+
+model CompletionRequirement {
+  id          String          @id @default(uuid())
+  /// Stable slug used to match requirements across presets when activating snapshots.
+  /// Nullable for backward compatibility — auto-filled on first preset save.
+  code        String?         @unique
+  name        String // e.g., "Đã hoàn thành 12 quy tắc sống"
+  type        RequirementType @default(manual)
+  description String? // Optional description shown to user
+  sortOrder   Int             @default(0) // Display order
+  isActive    Boolean         @default(true) // Can be deactivated without deletion
+
+  /// Optional logic group code for OR logic.
+  logicGroupCode String?
+  logicGroup     CompletionRequirementLogicGroup? @relation(fields: [logicGroupCode], references: [code])
+
+  // For auto_computed type only:
+  autoComputeField     String? // Field name to aggregate, e.g., "revenuePreTax"
+  autoComputeThreshold BigInt? // Threshold value, e.g., 5000000
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userStatuses UserCompletionStatus[]
+
+  @@index([isActive, sortOrder])
+  @@map("completion_requirements")
+}
+
+// ==================== COMPLETION REQUIREMENT LOGIC GROUPS ====================
+
+model CompletionRequirementLogicGroup {
+  code               String @id // e.g., "group_sales_referral"
+  minRequiredInGroup Int    @default(1) // Minimum number of requirements in the group that must be completed
+
+  // Relations
+  requirements CompletionRequirement[]
+
+  @@map("completion_requirement_logic_groups")
+}
+
+// ==================== COMPLETION REQUIREMENT PRESETS ====================
+// Saveable snapshots of the full requirement set. Exactly one is "active" at any
+// time and drives the live CompletionRequirement rows. Presets can be exported
+// to JSON, imported, set as default, and given an optional expiry.
+model CompletionRequirementPreset {
+  id          String  @id @default(uuid())
+  name        String  @unique // Human-friendly preset name
+  description String?
+
+  /// True iff this preset is currently driving the live requirement set.
+  /// Enforced single-active by service-layer transaction.
+  isActive Boolean @default(false)
+
+  /// Default preset — used as a fallback target (e.g. when active preset expires).
+  /// Service-layer enforces at most one default at a time.
+  isDefault Boolean @default(false)
+
+  /// Optional expiry. Null = lifetime active until manually replaced.
+  expiresAt DateTime?
+
+  /// Snapshot of the requirement set at save time. Shape:
+  /// [{ code, name, type, description, sortOrder, isActive, logicGroup: { code, minRequiredInGroup }, autoComputeField, autoComputeThreshold }, ...]
+  snapshot Json
+
+  createdAt     DateTime @default(now())
+  createdBy     String
+  createdByUser User     @relation("CompletionPresetCreatedBy", fields: [createdBy], references: [id])
+
+  activatedAt     DateTime?
+  activatedBy     String?
+  activatedByUser User?     @relation("CompletionPresetActivatedBy", fields: [activatedBy], references: [id])
+
+  updatedAt DateTime @updatedAt
+
+  // Inverse relations for anchor + history
+  anchoredRecognitions   UserRecognition[]         @relation("UserRecognitionAnchor")
+  grantHistoryAsAnchor   RecognitionGrantHistory[] @relation("PresetGrantHistory")
+  grantHistoryAsPrevious RecognitionGrantHistory[] @relation("PresetGrantHistoryPrev")
+
+  // MSTL auto-qualification states anchored to this preset.
+  mstlEligibilityStates MstlEligibilityState[] @relation("MstlEligibilityPreset")
+
+  @@index([isActive])
+  @@index([isDefault])
+  @@index([expiresAt])
+  @@map("completion_requirement_presets")
+}
+
+model UserCompletionStatus {
+  id            String    @id @default(uuid())
+  userId        String
+  requirementId String
+  completed     Boolean   @default(false)
+  completedAt   DateTime?
+  completedBy   String? // Admin userId who toggled it (for manual type)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user        User                  @relation("UserCompletionStatuses", fields: [userId], references: [id], onDelete: Cascade)
+  requirement CompletionRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requirementId])
+  @@index([userId])
+  @@index([requirementId])
+  @@map("user_completion_statuses")
+}

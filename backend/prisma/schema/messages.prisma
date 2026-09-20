@@ -1,0 +1,304 @@
+enum MessageReactionType {
+  LIKE
+  LOVE
+  HAHA
+  WOW
+  SAD
+  ANGRY
+}
+
+// Message and conversation system models
+model Conversation {
+  id            String    @id @default(uuid())
+  name          String?
+  imageUrl      String?
+  isGroup       Boolean   @default(false)
+  isArchived    Boolean   @default(false)
+  metadata      Json? // For storing group type and other metadata
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastMessageAt DateTime?
+
+  // Members
+  members ConversationMember[]
+
+  // Messages
+  messages Message[]
+
+  // Pinned messages (one-to-many)
+  pinnedMessages Message[] @relation("PinnedMessage")
+
+  // Calls
+  calls Call[] @relation("ConversationCalls")
+
+  // Creator
+  createdById String
+  createdBy   User   @relation("CreatedConversations", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([isGroup])
+  @@index([lastMessageAt(sort: Desc)]) // For conversation ordering
+  @@index([isGroup, isArchived]) // For filtering conversations
+  @@map("conversations")
+}
+
+model ConversationMember {
+  id       String     @id @default(uuid())
+  role     MemberRole @default(MEMBER) // MEMBER | ADMIN
+  joinedAt DateTime   @default(now())
+  isMuted  Boolean    @default(false)
+  nickname String?
+
+  // One-way soft delete (like Messenger): When set, hide messages before this timestamp
+  // The conversation reappears if new messages arrive after deletedAt
+  deletedAt DateTime?
+
+  // Track who added this member to the group
+  addedById String?
+  addedBy   User?   @relation("AddedMembers", fields: [addedById], references: [id], onDelete: SetNull)
+
+  // Removed/kicked from group: When set, member can still see old messages but not new ones
+  // They cannot send messages until re-added to the conversation
+  removedAt   DateTime?
+  removedById String?
+  removedBy   User?     @relation("RemovedMembers", fields: [removedById], references: [id], onDelete: SetNull)
+
+  conversationId String
+
+  userId       String
+  user         User         @relation("ConversationMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([conversationId, userId]) // For conversation member lookup
+  @@index([userId, deletedAt]) // For filtering soft-deleted conversations
+  @@index([addedById]) // For tracking who added members
+  @@index([removedById]) // For tracking who removed members
+  @@map("conversation_members")
+}
+
+enum MemberRole {
+  MEMBER
+  ADMIN
+  OWNER
+}
+
+model MessageReaction {
+  id String @id @default(uuid())
+
+  type      String // Emoji character (e.g., "❤️", "😆", "😮")
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message Message @relation("MessageReactions", fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation("UserMessageReactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId]) // One reaction per user per message
+  @@index([messageId])
+  @@map("message_reactions")
+}
+
+// User's customizable default reaction emojis (max 6)
+model UserReactionPreferences {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  // Array of 6 default emoji characters for quick reaction bar
+  // Defaults to: ["❤️", "😆", "😮", "😢", "😡", "👍"]
+  defaultEmojis String[] @default(["❤️", "😆", "😮", "😢", "😡", "👍"])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserReactionPreferences", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_reaction_preferences")
+}
+
+enum MessageType {
+  text
+  link
+  sticker
+  image
+  audio
+  video
+  file
+  location
+  contact
+  event
+  poll
+  poll_response
+  poll_vote
+  poll_vote_response
+  // Call types
+  call_started
+  call_ended
+  call_missed
+  call_declined
+}
+
+enum CallType {
+  AUDIO
+  VIDEO
+}
+
+enum CallStatus {
+  RINGING
+  ONGOING
+  ENDED
+  MISSED
+  DECLINED
+  NO_ANSWER
+}
+
+// Call model for tracking call sessions and history
+model Call {
+  id              String     @id @default(uuid())
+  type            CallType
+  status          CallStatus @default(RINGING)
+  roomName        String     @unique // LiveKit room name
+  startedAt       DateTime   @default(now())
+  answeredAt      DateTime?
+  endedAt         DateTime?
+  durationSeconds Int?
+
+  // Track when the last participant left (for cleanup purposes)
+  lastParticipantLeftAt DateTime?
+
+  // Recording
+  recordingUrl String?
+  recordingId  String? // LiveKit egress ID
+
+  // Relations
+  conversationId String
+  conversation   Conversation @relation("ConversationCalls", fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // Caller (who initiated the call)
+  callerId String
+  caller   User   @relation("CallsInitiated", fields: [callerId], references: [id], onDelete: Cascade)
+
+  // Participants who joined the call
+  participants CallParticipant[]
+
+  // Related message (call_started, call_ended, etc.)
+  messageId String?  @unique
+  message   Message? @relation("CallMessage", fields: [messageId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([conversationId])
+  @@index([callerId])
+  @@index([status])
+  @@index([roomName])
+  @@index([lastParticipantLeftAt]) // For cleanup cron job
+  @@map("calls")
+}
+
+model CallParticipant {
+  id       String    @id @default(uuid())
+  callId   String
+  userId   String
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user User @relation("CallParticipations", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@index([callId])
+  @@index([userId])
+  @@map("call_participants")
+}
+
+model Message {
+  id        String      @id @default(uuid())
+  content   String?
+  type      MessageType @default(text)
+  imageUrls String[]    @default([]) // Changed from imageUrl to imageUrls array
+  videoUrl  String?
+  audioUrl  String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Mux playback video
+  muxData MuxData? @relation("MessageMuxData")
+
+  // Wavesurfer audio
+  audioWaveform AudioWaveform? @relation("MessageAudioWaveform")
+
+  // Reply functionality
+  replyToId String?
+  replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("MessageReplies")
+
+  // Mentioned users
+  mentions   User[]  @relation("MentionedInMessages")
+  mentionAll Boolean @default(false) // When true, all conversation members are mentioned (@everyone/@mọi người)
+
+  // Attachment (one-to-one, optional)
+  attachmentId String?     @unique
+  attachment   Attachment? @relation("MessageAttachment", fields: [attachmentId], references: [id], onDelete: SetNull)
+
+  // Seen logic
+  seenBy      User[]        @relation("SeenMessages")
+  seenRecords MessageSeen[] @relation("MessageSeenRecords")
+
+  // Pinned in conversation (optional, many-to-one)
+  pinnedInConversationId String?
+  pinnedInConversation   Conversation? @relation("PinnedMessage", fields: [pinnedInConversationId], references: [id], onDelete: SetNull)
+
+  // Notification relations
+  notificationRefs Notification[] @relation("NotificationMessageRef")
+
+  // Reactions
+  reactions MessageReaction[] @relation("MessageReactions")
+
+  // Call relation (for call_started, call_ended, etc. messages)
+  call Call? @relation("CallMessage")
+
+  // Relations  
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderId String
+  sender   User   @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt(sort: Desc)]) // For message ordering and unseen count queries
+  @@index([senderId]) // For sender lookup
+  @@index([replyToId]) // For reply queries
+  @@map("messages")
+}
+
+model MessageSeen {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  seenAt    DateTime @default(now())
+
+  message Message @relation("MessageSeenRecords", fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation("UserSeenRecords", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId]) // Prevent duplicate seen records
+  @@index([messageId, userId]) // For unseen count queries
+  @@index([userId]) // For user's seen messages
+  @@map("message_seen")
+}
+
+model AudioWaveform {
+  id String @id @default(uuid())
+
+  durationSeconds Float
+  peaks           Json // number[] or number[][]
+  sampleRate      Int?
+  channels        Int   @default(1)
+
+  peaksPps        Int?
+  peaksVersion    Int     @default(1)
+  peaksNormalized Boolean @default(false)
+  messageId       String  @unique
+  message         Message @relation("MessageAudioWaveform", fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("audio_waveform")
+}

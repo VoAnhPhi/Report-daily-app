@@ -1,0 +1,76 @@
+enum BusinessReviewType {
+  create
+  update
+  delete
+}
+
+enum BusinessReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model BusinessReview {
+  id String @id @default(cuid())
+
+  type   BusinessReviewType
+  status BusinessReviewStatus @default(pending)
+
+  // Snapshot of the proposed business data (full JSON for create/update, null for delete)
+  proposedData Json? // Full business payload
+  previousData Json? // Snapshot of current business state before change (for update/delete)
+
+  // Business reference (null for create since business doesn't exist yet)
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  // Submitter
+  submittedById String
+  submittedBy   User     @relation("BusinessReviewSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime @default(now())
+
+  // Reviewer (filled on approve/reject)
+  reviewedById String?
+  reviewedBy   User?     @relation("BusinessReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  // Reviewer feedback
+  reviewNote   String?  @db.Text
+  reviewImages String[] // uploadthing URLs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Audit log entries
+  auditLogs BusinessReviewAuditLog[]
+
+  @@index([status])
+  @@index([type])
+  @@index([businessId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("business_reviews")
+}
+
+model BusinessReviewAuditLog {
+  id String @id @default(cuid())
+
+  action   String // submitted, approved, rejected, cancelled
+  note     String? @db.Text
+  metadata Json? // Any extra context
+
+  performedById String
+  performedBy   User   @relation("BusinessReviewAuditPerformer", fields: [performedById], references: [id])
+
+  reviewId String
+  review   BusinessReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("business_review_audit_logs")
+}

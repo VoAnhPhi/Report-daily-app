@@ -1,0 +1,76 @@
+enum NewsReviewType {
+  create
+  update
+  delete
+}
+
+enum NewsReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model NewsReview {
+  id String @id @default(cuid())
+
+  type   NewsReviewType
+  status NewsReviewStatus @default(pending)
+
+  // Snapshot of the proposed news data (full JSON for create/update, null for delete)
+  proposedData Json? // Full news payload
+  previousData Json? // Snapshot of current news state before change (for update/delete)
+
+  // NewsItem reference (null for create since news item doesn't exist yet)
+  newsItemId String?
+  newsItem   NewsItem? @relation(fields: [newsItemId], references: [id], onDelete: SetNull)
+
+  // Submitter
+  submittedById String
+  submittedBy   User     @relation("NewsReviewSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime @default(now())
+
+  // Reviewer (filled on approve/reject)
+  reviewedById String?
+  reviewedBy   User?     @relation("NewsReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  // Reviewer feedback
+  reviewNote   String?  @db.Text
+  reviewImages String[] // uploadthing URLs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Audit log entries
+  auditLogs NewsReviewAuditLog[]
+
+  @@index([status])
+  @@index([type])
+  @@index([newsItemId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("news_reviews")
+}
+
+model NewsReviewAuditLog {
+  id String @id @default(cuid())
+
+  action   String // submitted, approved, rejected, cancelled
+  note     String? @db.Text
+  metadata Json? // Any extra context
+
+  performedById String
+  performedBy   User   @relation("NewsReviewAuditPerformer", fields: [performedById], references: [id])
+
+  reviewId String
+  review   NewsReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("news_review_audit_logs")
+}

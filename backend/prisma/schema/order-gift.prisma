@@ -1,0 +1,99 @@
+// ==================== GIFT TEMPLATE ====================
+// Cấu hình thiệp/quà tặng do admin quản lý
+// Each storefront-selectable gift template (card design, message constraints, optional config fields).
+model GiftTemplate {
+  id String @id @default(cuid())
+
+  name        String // Tên template (admin-facing + storefront-displayed)
+  description String? // Mô tả ngắn
+  imageUrl    String? // Ảnh thiệp/quà (UploadThing URL)
+
+  maxMessageLength Int @default(200) // Độ dài tối đa của lời nhắn
+
+  // Optional config: { extraFields?: [{ name, label, maxLength, required }], allowAnonymousByDefault?: bool }
+  configFields Json?
+
+  isDefault    Boolean @default(false) // Hiển thị mặc định trên storefront
+  isActive     Boolean @default(true) // Bật/tắt
+  displayOrder Int     @default(0) // Thứ tự hiển thị
+
+  createdById String? // user id của admin tạo
+  createdBy   User?   @relation("GiftTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  giftInfos OrderGiftInfo[] // Đơn quà tặng đang dùng template này
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, displayOrder])
+  @@index([isDefault])
+  @@map("gift_templates")
+}
+
+// ==================== ORDER GIFT INFO ====================
+// Thông tin quà tặng đính kèm đơn hàng (1:1 với Order)
+// Snapshot bao gồm thông tin người mua / người nhận / template / lời nhắn / preferences
+// để render lịch sử ổn định ngay cả khi Customer / OrderDelivery / GiftTemplate thay đổi sau này (§22).
+model OrderGiftInfo {
+  id String @id @default(cuid())
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  isGiftOrder                 Boolean @default(true) // Đánh dấu đây là đơn quà tặng
+  recipientDifferentFromBuyer Boolean @default(false) // Người nhận khác người mua
+
+  // ---------- BUYER snapshot (frozen at order time) ----------
+  // Tách khỏi Customer để snapshot ổn định nếu admin chỉnh Customer sau này.
+  buyerName  String // Tên người đặt
+  buyerPhone String // SĐT người đặt
+  buyerEmail String? // Email người đặt (nullable)
+
+  // ---------- RECIPIENT snapshot ----------
+  // Mirror OrderDelivery so historical reads remain stable nếu admin sửa OrderDelivery.
+  recipientName        String // Tên người nhận
+  recipientPhone       String // SĐT người nhận
+  recipientEmail       String? // Email người nhận (optional, dùng để gửi notification)
+  recipientAddressLine String // Địa chỉ chi tiết
+  recipientProvince    String // Tỉnh/TP
+  recipientDistrict    String? // Quận/Huyện
+  recipientWard        String // Phường/Xã
+  recipientFullAddress String // Địa chỉ đầy đủ đã ghép (snapshot, dùng cho hiển thị/email)
+
+  // ---------- GIFT CONTENT ----------
+  giftMessage String? @db.Text // Lời nhắn gửi kèm (đã sanitize)
+
+  giftTemplateId             String?
+  giftTemplate               GiftTemplate? @relation(fields: [giftTemplateId], references: [id], onDelete: SetNull)
+  giftTemplateNameSnapshot   String? // Tên template tại thời điểm đặt
+  giftTemplateImageSnapshot  String? // Ảnh template tại thời điểm đặt
+  giftTemplateFieldsSnapshot Json? // Giá trị các trường tuỳ chỉnh do user nhập
+
+  // ---------- ANONYMOUS MODE ----------
+  anonymousSender   Boolean @default(false) // Bật ẩn danh người gửi
+  senderDisplayName String? // Tên hiển thị thay thế (chỉ recipient thấy)
+
+  // ---------- DELIVERY PREFERENCE (note semantics, không phải SLA của GHN) ----------
+  preferredDeliveryDate      DateTime? // Ngày giao mong muốn
+  preferredDeliveryTimeStart String? // "HH:mm"
+  preferredDeliveryTimeEnd   String? // "HH:mm"
+  deliveryPreferenceNote     String?   @db.Text // Ghi chú thêm cho ship/pack
+
+  // ---------- WAREHOUSE / PACKING STATE ----------
+  giftCardPrepared     Boolean   @default(false) // Đã chuẩn bị thiệp quà
+  giftCardPreparedAt   DateTime?
+  giftCardPreparedById String?
+
+  // ---------- RECIPIENT NOTIFICATION AUDIT ----------
+  recipientNotifiedAt          DateTime?
+  recipientNotificationChannel String? // 'email' | 'sms' | null
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([giftTemplateId])
+  @@index([giftCardPrepared])
+  @@index([anonymousSender])
+  @@map("order_gift_infos")
+}

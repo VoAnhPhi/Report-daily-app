@@ -1,0 +1,39 @@
+erDiagram
+  USER {
+    string id PK
+  }
+  BUSINESS_FORM_TASK {
+    string id PK
+    string title
+    string status
+    string createdById FK
+    string mainAssigneeId FK
+  }
+  BUSINESS_FORM_TASK_ASSIGNMENT {
+    string taskId PK, FK
+    string userId PK, FK
+    string status
+  }
+  BUSINESS_FORM_TASK_ACTIVITY {
+    string id PK
+    string taskId FK
+    string type
+  }
+  TASK_ASSIGN_GROUP {
+    string id PK
+    string ownerId FK
+    string name
+  }
+  TASK_ASSIGN_GROUP_MEMBER {
+    string groupId PK, FK
+    string userId PK, FK
+  }
+
+  USER ||..o{ BUSINESS_FORM_TASK : "tạo việc"
+  USER o|..o{ BUSINESS_FORM_TASK : "phụ trách chính"
+  BUSINESS_FORM_TASK ||--o{ BUSINESS_FORM_TASK_ASSIGNMENT : "giao cho"
+  USER ||--o{ BUSINESS_FORM_TASK_ASSIGNMENT : "nhận việc"
+  BUSINESS_FORM_TASK ||..o{ BUSINESS_FORM_TASK_ACTIVITY : "có hoạt động"
+  USER ||..o{ TASK_ASSIGN_GROUP : "sở hữu nhóm"
+  TASK_ASSIGN_GROUP ||--o{ TASK_ASSIGN_GROUP_MEMBER : "có thành viên"
+  USER ||--o{ TASK_ASSIGN_GROUP_MEMBER : "thuộc nhóm"

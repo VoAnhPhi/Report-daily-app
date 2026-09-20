@@ -1,0 +1,58 @@
+// ==================== SỔ SUẤT CỌC KHO CTV ====================
+// Suất cọc = số combo ảo tại một kho CTV mà chủ kho ĐÃ đặt cọc và CHƯA bán ra.
+//
+// Trước sổ này, "combo X tại kho Y có cọc hay không" là một câu hỏi BOOLEAN:
+// `ctv-warehouse-sale-context.util.ts` dựng một `Set<productId>` từ các dòng
+// `product_batch_expires` có cọc, và mọi đơn combo bán ra từ kho đó đều đóng băng
+// `OrderDetail.hasWarehouseDeposit = true` — không có trần số lượng. Kho nhập 10
+// combo có cọc rồi nhập thêm 10 combo KHÔNG cọc thì cả 20 vẫn được trả thù lao
+// kho vận (F7). Sổ này biến câu hỏi đó thành một CON SỐ trừ dần.
+//
+//   suất còn lại(kho, combo) = Σ onHand − Σ depositConsumed
+//     trên các dòng product_batch_expires có hasDeposit AND depositAmount > 0
+//
+// ── Vì sao bỏ qua depositRefunded ────────────────────────────────────────────
+// Chủ kho hoàn cọc KHÔNG thu hồi suất (quyết định operator 2026-08-15): điều kiện
+// là "hàng đã nhập kho kèm cọc", không phải "tiền cọc còn đang nằm ở công ty".
+// Đừng "sửa" công thức thành trừ phần đã hoàn — đó là một quyết định nghiệp vụ,
+// không phải một thiếu sót.
+//
+// ── Vì sao cần bảng phân bổ riêng, không suy ngược từ OrderDetail ────────────
+// Suất bị trừ lúc ĐẶT HÀNG và phải trả lại khi huỷ. Đơn hàng có nhiều đường huỷ
+// độc lập (khách tự huỷ, cron hết hạn thanh toán, admin huỷ/hoàn tiền) và hai
+// đường có thể lần lượt chạy trên cùng một đơn. Suy ngược số suất từ dòng đơn thì
+// gọi hoàn hai lần sẽ cộng suất hai lần và không có cách nào biết. Một dòng phân
+// bổ bị XOÁ sau khi hoàn ⇒ lần gọi sau là no-op, tự đủ, không phụ thuộc caller.
+
+model OrderDepositAllocation {
+  id String @id @default(cuid())
+
+  /// Cột thuần, CỐ Ý không khoá ngoại tới `orders` — cùng lý do với
+  /// `warehouse_logistics_backfill_audit_logs`: dòng ghi lại một lần dịch chuyển
+  /// suất phải sống độc lập với đơn nó mô tả. Việc hoàn suất tra theo cột này.
+  orderId String
+
+  /// Combo CHA. Trùng với `product_batch_expires.productId` của dòng cọc, lặp lại
+  /// ở đây để đối soát "kho này đã tiêu hao bao nhiêu suất của combo X" không phải
+  /// join sang bảng cọc.
+  comboProductId String
+
+  /// Dòng cọc mà suất được lấy ra. Cascade: dòng cọc biến mất thì không còn chỗ
+  /// nào để trả suất về, nên bản ghi phân bổ cũng không còn nghĩa.
+  batchExpireId String
+  batchExpire   ProductBatchExpire @relation(fields: [batchExpireId], references: [id], onDelete: Cascade)
+
+  /// Số suất (đơn vị = COMBO, không phải sản phẩm thành phần). Luôn > 0 —
+  /// `CHECK ("quantity" > 0)` trong migration là chốt chặn cuối.
+  quantity Int
+
+  createdAt DateTime @default(now())
+
+  /// Chốt idempotency của việc TRỪ suất: chạy lại cấp phát cho cùng một đơn trên
+  /// cùng một dòng cọc không tạo dòng thứ hai. Thiếu unique này thì một lần retry
+  /// của BullMQ hay một lần gọi lại bằng tay sẽ trừ suất hai lần.
+  @@unique([orderId, batchExpireId], map: "order_deposit_allocations_order_batch_key")
+  @@index([orderId], map: "order_deposit_allocations_orderId_idx")
+  @@index([comboProductId], map: "order_deposit_allocations_comboProductId_idx")
+  @@map("order_deposit_allocations")
+}

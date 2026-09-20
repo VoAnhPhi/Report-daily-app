@@ -1,0 +1,35 @@
+// Danh mục thẻ nhãn của điểm cầu (VD: "wifi_miễn_phí", "có_chỗ_đậu_xe")
+//
+// ⚠ Trước 07/09/2026 đây là bảng thẻ nhãn của "địa điểm kinh doanh".
+model WarehouseTag {
+  id   String  @id @default(cuid())
+  slug String  @unique // Định danh máy đọc (VD: "free_wifi")
+  name String // Tên hiển thị tiếng Việt (VD: "Wifi miễn phí")
+  icon String? // Icon name hoặc URL
+
+  // Quan hệ nhiều-nhiều
+  warehouseTagMaps WarehouseTagMap[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("warehouse_tags")
+}
+
+// Bảng trung gian điểm cầu ↔ thẻ nhãn
+model WarehouseTagMap {
+  id String @id @default(cuid())
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  tagId String
+  tag   WarehouseTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([warehouseId, tagId])
+  @@index([warehouseId])
+  @@index([tagId])
+  @@map("warehouse_tag_maps")
+}

@@ -1,0 +1,88 @@
+// Thù lao kho vận — mô hình babysitter F3.
+// OrderWarehouseLogistics = NEO beneficiary: lúc checkout lưu "đơn X dùng mã kho
+// của quản lý Y". affiliate-queue (lúc thanh toán) đọc neo này để build hoa hồng
+// mức F7 (status pending) cùng batch F0–F3 → finalize VAT chung flip→calculated +
+// cộng ví; huỷ/rollback đảo qua machinery hoa hồng chung. TIỀN nằm ở
+// affiliate_commissions (F7), bảng này KHÔNG giữ số tiền/trạng thái.
+
+model OrderWarehouseLogistics {
+  id            String @id @default(cuid())
+  orderId       String @unique
+  beneficiaryId String
+
+  createdAt DateTime @default(now())
+
+  order       Order @relation(fields: [orderId], references: [id])
+  beneficiary User  @relation("WarehouseLogisticsBeneficiary", fields: [beneficiaryId], references: [id])
+
+  @@index([beneficiaryId])
+  @@map("order_warehouse_logistics")
+}
+
+// Cấu hình % thù lao kho vận (F7). Bảng 1-dòng (mirror GratitudeConfig). Admin
+// chỉnh qua /admin/warehouse-logistics/config. Chỉ ảnh hưởng hoa hồng F7 tạo về
+// sau — commission đã tạo giữ nguyên rate snapshot.
+model WarehouseLogisticsConfig {
+  id         String   @id @default(cuid())
+  percentage Float    @default(5)
+  updatedAt  DateTime @updatedAt
+
+  @@map("warehouse_logistics_config")
+}
+
+enum WarehouseLogisticsBackfillOutcome {
+  applied
+  skipped
+}
+
+enum WarehouseLogisticsBackfillPair {
+  recompute
+  create_missing
+}
+
+// Nhật ký backfill thù lao kho vận (F7) — ghi lại MỖI đơn một lượt chạy đụng
+// tới, dù ghi đè tiền (outcome=applied) hay bỏ qua (outcome=skipped kèm
+// skipReason). Cột "pair" phân biệt hai thao tác có hình rủi ro ngược nhau:
+// recompute DI CHUYỂN tiền đã tồn tại giữa hai người nhận (đảo dòng pending
+// cũ, tạo dòng mới); create_missing TẠO tiền chưa từng tồn tại cho đơn chưa
+// có dòng F7 nào. Tách bằng một cột enum mà database enforce được, không phải
+// bằng tiền tố chuỗi trong runId mà không ai kiểm tra — bước đối soát sau này
+// đọc bảng này trực tiếp và cần phân biệt được hai loại ngay từ truy vấn.
+//
+// orderId/orderCode là scalar THUẦN, cố ý KHÔNG phải khoá ngoại tới Order —
+// theo đúng mẫu BugReportAuditLog.bugId: một dòng ghi tiền đã di chuyển phải
+// sống sót độc lập với đơn nó mô tả. onDelete Cascade sẽ xoá mất dấu vết tiền
+// đúng lúc cần nó nhất; onDelete Restrict lại khiến một thao tác đơn không
+// liên quan thất bại chỉ vì một lượt backfill từng chạm tới đơn đó.
+// orderCode được chụp lại (snapshot) để đọc log không cần join ngược về orders.
+model WarehouseLogisticsBackfillAuditLog {
+  id String @id @default(cuid())
+
+  runId String // một giá trị dùng chung cho mọi dòng của MỘT lượt chạy — gộp thành báo cáo lượt, dò một đơn xuyên lượt
+  pair  WarehouseLogisticsBackfillPair
+
+  orderId   String // scalar thuần — cố ý KHÔNG FK tới Order, xem docstring model phía trên
+  orderCode String // snapshot mã đơn — đọc log không cần join
+
+  outcome    WarehouseLogisticsBackfillOutcome
+  skipReason String?                           @db.Text // chỉ có giá trị khi outcome = skipped
+
+  // Bốn cột đều nullable: cặp create_missing không có "trước" (đơn chưa từng
+  // có dòng F7); một dòng skipped không có "sau" (không ghi gì).
+  beforeBeneficiaryId String?
+  beforeAmount        Decimal? @db.Decimal(15, 2)
+  afterBeneficiaryId  String?
+  afterAmount         Decimal? @db.Decimal(15, 2)
+
+  actorId String // bắt buộc — mọi lượt ghi đều do một super-admin bấm tay, không có đường cron
+  actor   User   @relation("WarehouseLogisticsBackfillActor", fields: [actorId], references: [id])
+  reason  String @db.Text // bắt buộc — không dòng nào được ghi tiền mà không nêu lý do
+
+  createdAt DateTime @default(now())
+
+  @@index([runId])
+  @@index([orderId])
+  @@index([actorId, createdAt])
+  @@index([pair, outcome])
+  @@map("warehouse_logistics_backfill_audit_logs")
+}

@@ -1,0 +1,28 @@
+/// Single-row config: the "Cột mốc tính phí ship" điểm cầu.
+/// Null warehouseId = no origin → Giao tận nhà blocked (D-13 / G-07).
+/// DO NOT touch system_configs (Phase 44 collision risk — G-09).
+model ShippingOriginConfig {
+  id                  String     @id @default(uuid())
+  warehouseId         String?    @unique
+  warehouse           Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  originGhnDistrictId Int?
+  originGhnWardCode   String?
+  updatedAt           DateTime   @updatedAt
+  updatedBy           String?
+
+  @@map("shipping_origin_configs")
+}
+
+/// Append-only audit log for origin changes — no hard FK to User
+/// (service joins changedById against User in code, per review-gating pattern).
+model ShippingOriginConfigAuditLog {
+  id            String   @id @default(uuid())
+  warehouseId   String?
+  warehouseName String?
+  changedById   String
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("shipping_origin_config_audit_logs")
+}

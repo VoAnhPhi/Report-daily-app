@@ -1,0 +1,33 @@
+/// One row per review-gated feature. When `isEnabled = false`, Super Admin
+/// actions on that feature bypass the review queue (the action is applied
+/// immediately and a review record is recorded as auto-approved). Other
+/// roles continue to go through the normal review flow regardless.
+///
+/// `featureKey` is the canonical identifier the frontend uses
+/// (see acta-admin/constants/review-gating.ts).
+model ReviewGatingConfig {
+  featureKey String   @id // "voucher", "category", "warehouse", ...
+  isEnabled  Boolean  @default(true)
+  updatedAt  DateTime @updatedAt
+  updatedBy  String? // userId of the admin who last toggled it
+
+  @@map("review_gating_configs")
+}
+
+/// Append-only audit log for the Hệ thống → Cấu hình duyệt → Lịch sử tab.
+/// Every toggle (single + bulk) writes one row so admins can see who turned
+/// review on/off for which feature and when. We deliberately do NOT use a
+/// hard relation to `User` to keep the existing schema untouched — the
+/// service joins `changedById` against `User` in code when responding.
+model ReviewGatingConfigAuditLog {
+  id          String   @id @default(uuid())
+  featureKey  String
+  isEnabled   Boolean // the new state after the change
+  note        String?
+  changedById String // userId of the admin who toggled
+  createdAt   DateTime @default(now())
+
+  @@index([featureKey, createdAt])
+  @@index([createdAt])
+  @@map("review_gating_config_audit_logs")
+}

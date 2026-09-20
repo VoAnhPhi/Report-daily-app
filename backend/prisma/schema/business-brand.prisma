@@ -1,0 +1,74 @@
+// Thương hiệu thuộc về một doanh nghiệp.
+// Một doanh nghiệp có thể vận hành nhiều thương hiệu (VD: chuỗi cà phê + chuỗi ăn uống).
+model BusinessBrand {
+  id String @id @default(cuid())
+
+  businessId String
+  business   Business @relation("BusinessBrands", fields: [businessId], references: [id], onDelete: Cascade)
+
+  // Người tạo
+  createdByUserId String?
+  createdBy       User?   @relation("BusinessBrandCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  // Thông tin thương hiệu
+  name           String // Tên thương hiệu
+  nameNormalized String? // STORED generated column — managed via raw migration SQL; do NOT use prisma migrate dev
+  slug           String  @unique // URL thân thiện (duy nhất toàn hệ thống)
+  description    String? @db.Text // Mô tả thương hiệu
+  logoKey        String? // Uploadthing file key cho logo
+  logoUrl        String? // URL công khai của logo
+  coverKey       String? // Uploadthing file key cho ảnh bìa
+  coverUrl       String? // URL công khai ảnh bìa
+
+  // Phân loại ngành nghề
+  industry    String? // Ngành (VD: "food_beverage", "retail", "beauty")
+  subIndustry String? // Ngành con (VD: "coffee_shop", "hair_salon")
+
+  // Trạng thái
+  isActive Boolean @default(true) // Đang hoạt động
+
+  // Phase 30 — trường mới
+  tagline String? // Khẩu hiệu thương hiệu
+  logo    String? // URL hiển thị thương hiệu (UploadThing CDN URL, canonical display field)
+
+  // Quan hệ
+  products           Product[] // via brandId (legacy brand relation)
+  brandedProducts    Product[]                       @relation("ProductBusinessBrand") // Phase 33: via businessBrandId FK
+  featuredCategories BusinessBrandFeaturedCategory[] // Phase 30 M:N join
+  auditLogs          BrandAuditLog[] // Phase 30 — back-relation từ brand-audit.prisma
+  brandReviews       BrandReview[] // Phase 34 — back-relation từ brand-review.prisma (cổng duyệt 2-admin)
+
+  /// Điểm cầu mang thương hiệu này (khôi phục 08/09/2026 — xem `Warehouse.brandId`).
+  /// Nguồn của thư viện ảnh/video theo thương hiệu: gom `WarehouseMedia` của mọi
+  /// điểm cầu thuộc thương hiệu.
+  warehouses Warehouse[] @relation("BusinessBrandWarehouses")
+
+  // Phase 37 — halfvec(1024) embedding (catalog-wide scan). Managed via raw migration SQL
+  // (Prisma --create-only). Phase 37 pipeline owns population; unindexed (small table).
+  embedding        Unsupported("halfvec(1024)")?
+  embeddingVersion String?                       @map("embedding_version")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([slug])
+  @@index([businessId, isActive])
+  @@index([industry])
+  @@map("business_brands")
+}
+
+// Bảng trung gian: thương hiệu ↔ danh mục nổi bật (nhiều-nhiều)
+model BusinessBrandFeaturedCategory {
+  id              String        @id @default(cuid())
+  businessBrandId String
+  businessBrand   BusinessBrand @relation(fields: [businessBrandId], references: [id], onDelete: Cascade)
+  categoryId      String
+  category        Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  sortOrder       Int           @default(0)
+
+  @@unique([businessBrandId, categoryId])
+  @@index([businessBrandId])
+  @@index([categoryId])
+  @@map("business_brand_featured_categories")
+}

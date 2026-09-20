@@ -1,0 +1,733 @@
+// Enums
+enum Gender {
+  male
+  female
+  other
+  not_known
+  prefer_not_to_say
+}
+
+enum UserStatus {
+  pending
+  pending_admin
+  pending_kyc
+  kyc_submitted
+  kyc_changing
+  active
+  inactive
+  marketing // Guest checkout users without KYC
+}
+
+enum Role {
+  admin
+  user
+  collaborator
+  moderator
+  business
+  admin_voucher_gvc
+}
+
+enum KycStatus {
+  pending
+  submitted
+  approved
+  rejected
+}
+
+/// Luồng đã tạo ra tài khoản. Ghi NGAY lúc tạo, không suy từ trạng thái về sau —
+/// `status` bị đổi liên tục (marketing → kyc_submitted → active) nên không truy vết được.
+/// `User.source` KHÔNG thay thế được: nó chỉ phân biệt kiotviet/acta.
+enum RegistrationChannel {
+  register_web // Tự đăng ký (auth.service register)
+  guest_checkout // Tự sinh khi khách vãng lai đặt hàng (e-commerce checkout)
+  admin_created // Nhân viên vận hành tạo trong trang quản trị
+  business_owner // Tạo kèm khi mở doanh nghiệp
+  game_otp // Luồng OTP marketing của game
+  partner_api // Đối tác gọi Partner API
+  backfill_import // Nhập từ dữ liệu cũ
+  kiotviet_import // Đồng bộ từ KiotViet
+  unknown // Không biết — KHÔNG BAO GIỜ đoán bừa thành một luồng cụ thể
+}
+
+/// Giá trị `registrationChannel` là khai lúc tạo hay suy đoán về sau.
+/// Trộn hai loại vào một cột là mất vĩnh viễn khả năng phân biệt "đo được" với "đoán".
+enum RegistrationChannelConfidence {
+  declared // Mã ghi thẳng lúc tạo tài khoản
+  inferred // Suy từ dấu vân tay dữ liệu cũ (email/bio/ngày sinh/đơn hàng)
+  unknown // Chưa xác định
+}
+
+/// Người giới thiệu đến từ đâu. Bắt buộc phải có, vì từ nay hệ thống TỰ GÁN tài khoản
+/// nhà khi khách không mang mã — không ghi lại thì cây tuyến sẽ nói dối rằng tài khoản
+/// nhà thật sự đi giới thiệu những người đó, và hoa hồng sẽ tính trên một lời nói dối.
+enum ReferrerAssignment {
+  user_link // Khách vào bằng link giới thiệu / tự nhập mã
+  house_default // Hệ thống tự gán tài khoản nhà vì không có mã
+  admin_assigned // Người vận hành gán tay
+  none // Luồng miễn trừ, cố ý để trống
+}
+
+model User {
+  id String @id @default(uuid())
+
+  // KiotViet integration - Tích hợp KiotViet
+  kiotVietUserId Int? @unique // ID tài khoản từ KiotViet
+
+  email            String       @unique
+  emailVerified    Boolean      @default(false)
+  image            String?
+  passwordHash     String
+  fullName         String
+  referenceId      String       @unique
+  phoneNumber      String
+  dob              DateTime?    @db.Timestamp(6)
+  gender           Gender       @default(not_known)
+  verificationDate DateTime?    @db.Timestamp(6)
+  country          String
+  role             Role
+  isActive         Boolean      @default(false)
+  bio              String?
+  website          String?
+  zuid             String? // Zalo User ID (ZUID) for ZNS UID-based messaging
+  status           UserStatus   @default(pending)
+  rejectedReason   String?
+  source           OriginSource @default(acta) // Nguồn gốc
+
+  // Multi-tenant scoping — set at registration/claim time; enriched into JWT in Phase 3
+  businessId String?
+
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+  lastSeenAt DateTime? // Last time user was active (for presence tracking)
+
+  // Authentications
+  emailChange       EmailChange?
+  emailVerification EmailVerification?
+  otpVerification   OtpVerification?
+  passwordReset     PasswordReset?
+  passwordChangeOtp PasswordChangeOtp?
+  withdrawalOtp     WithdrawalOtp?
+  apiKeyOtp         ApiKeyOtp?
+
+  sessions Session[]
+  accounts Account[]
+
+  // OAuth Relations
+  oauthClients       OAuthClient[]
+  oauthAccessTokens  OAuthAccessToken[]
+  oauthRefreshTokens OAuthRefreshToken[]
+  oauthConsents      OAuthConsent[]
+
+  addresses Address[]
+
+  // Profile images
+  avatarId String?     @unique
+  avatar   Attachment? @relation("UserAvatar", fields: [avatarId], references: [id], onDelete: Cascade)
+
+  oldAvatars Attachment[] @relation("UserOldAvatars")
+
+  coverId String?     @unique
+  cover   Attachment? @relation("UserCover", fields: [coverId], references: [id], onDelete: Cascade)
+
+  oldCovers Attachment[] @relation("UserOldCovers")
+
+  // Referrals Section
+  referrerId String?
+  referrer   User?   @relation("UserReferrals", fields: [referrerId], references: [referenceId])
+  referrals  User[]  @relation("UserReferrals")
+
+  // Truy vết nguồn gốc tài khoản (CLAUDE.md — quyết định chủ dự án 2026-09-11).
+  // Mặc định `unknown` là CỐ Ý: hàng cũ chưa suy đoán phải nói "không biết", không
+  // được mang một giá trị cụ thể mà không ai đo.
+  registrationChannel           RegistrationChannel           @default(unknown)
+  registrationChannelConfidence RegistrationChannelConfidence @default(unknown)
+  referrerAssignment            ReferrerAssignment?
+
+  ancestors   UserReferralClosure[] @relation("Ancestor")
+  descendants UserReferralClosure[] @relation("Descendant")
+
+  // ĐIỆN KIẾN CHỦ — mỗi thành viên tối đa một ngôi sao (shrines.acta.vn)
+  shrineStar ShrineStar? @relation("UserShrineStar")
+
+  // Social
+  posts        Post[]        @relation("UserPosts")
+  reactions    Reaction[]    @relation("UserReactions")
+  comments     Comment[]     @relation("UserComments")
+  commentLikes CommentLike[] @relation("UserCommentLikes")
+  savedPosts   SavedPost[]   @relation("UserSavedPosts")
+  reposts      Repost[]      @relation("UserReposts")
+  followers    Follower[]    @relation("UserFollowersFollowing")
+  following    Follower[]    @relation("UserFollowersFollowed")
+
+  // Stories
+  stories                Story[]          @relation("UserStories")
+  storyViews             StoryView[]      @relation("UserStoryViews")
+  storyReplies           StoryReply[]     @relation("UserStoryReplies")
+  storyReports           StoryReport[]    @relation("UserStoryReports")
+  storyReportResolutions StoryReport[]    @relation("UserStoryReportResolutions")
+  closeFriends           CloseFriend[]    @relation("UserCloseFriends")
+  closeFriendOf          CloseFriend[]    @relation("UserCloseFriendOf")
+  storyAudience          StoryAudience[]  @relation("UserStoryAudience")
+  storyExclusions        StoryExclusion[] @relation("UserStoryExclusions")
+
+  // Livestream
+  liveStreams              LiveStream[]                    @relation("UserLiveStreamsCreated")
+  liveStreamParticipants   LiveStreamParticipant[]         @relation("UserLiveStreamParticipants")
+  liveStreamChatMessages   LiveStreamChatMessage[]         @relation("UserLiveStreamChatMessages")
+  liveStreamReactions      LiveStreamReaction[]            @relation("UserLiveStreamReactions")
+  liveStreamBans           ModerateLiveStreamBan[]         @relation("UserLiveStreamBansModerated")
+  liveStreamBansModerated  ModerateLiveStreamBan[]         @relation("UserLiveStreamBansModerator")
+  liveStreamPinnedProducts LiveStreamPinnedProduct[]       @relation("UserLiveStreamPinnedProducts")
+  liveStreamCommissions    LiveStreamAffiliateCommission[] @relation("UserLiveStreamCommissions")
+  liveStreamPolls          LiveStreamPoll[]                @relation("UserLiveStreamPolls")
+  liveStreamPollVotes      LiveStreamPollVote[]            @relation("UserLiveStreamPollVotes")
+
+  userNotifications   Notification[]       @relation("UserNotifications")
+  actorNotifications  Notification[]       @relation("ActorUserNotifications")
+  notificationCounter NotificationCounter?
+
+  // Chat related
+  createdConversationIds String[]
+  createdConversations   Conversation[] @relation("CreatedConversations")
+
+  seenMessageIds String[]
+  seenMessages   Message[] @relation("SeenMessages")
+  messagesSent   Message[] @relation("MessagesSent")
+
+  conversationMemberships ConversationMember[]     @relation("ConversationMemberships")
+  addedMembers            ConversationMember[]     @relation("AddedMembers")
+  removedMembers          ConversationMember[]     @relation("RemovedMembers")
+  messageSeenRecords      MessageSeen[]            @relation("UserSeenRecords")
+  mentionedInMessages     Message[]                @relation("MentionedInMessages")
+  messageReactions        MessageReaction[]        @relation("UserMessageReactions")
+  reactionPreferences     UserReactionPreferences? @relation("UserReactionPreferences")
+
+  // Call relations
+  callsInitiated     Call[]            @relation("CallsInitiated")
+  callParticipations CallParticipant[] @relation("CallParticipations")
+
+  // Customer
+  customer Customer? @relation("UserCustomer")
+
+  businesses             Business[]
+  cart                   Cart?
+  ratings                Rating[]
+  ratingLikes            RatingLike[]
+  ratingRepliesAsAdmin   RatingReply[]        @relation("AdminRatingReplies")
+  ratingReplyEditHistory RatingReplyHistory[] @relation("RatingReplyHistoryEditor")
+  productReviews         Review[]             @relation("UserProductReviews")
+  productWarranties      ProductWarranty[]    @relation("UserProductWarranties")
+  wishlistItems          WishlistItem[]       @relation("UserWishlist")
+  purchaseOrders         PurchaseOrder[]      @relation("UserPurchaseOrders")
+  purchaseOrdersApproved PurchaseOrder[]      @relation("UserPurchaseOrdersApproved")
+  purchaseOrdersReceived PurchaseOrder[]      @relation("UserPurchaseOrdersReceived")
+  cashflows              Cashflow[]           @relation("UserCashflows")
+  priceBooks             PriceBook[]          @relation("UserPriceBooks")
+  orderBusinesses        OrderBusiness[]      @relation("UserOrderBusinesses")
+
+  // New content-related relations
+  newsItems        NewsItem[]
+  newsComments     NewsComment[]
+  newsLikes        NewsLike[]
+  newsCommentLikes NewsCommentLike[]
+
+  // KYC
+  kyc        UserKYC?  @relation("UserKYC")
+  kycReviews UserKYC[] @relation("UserKYCReviewedBy")
+
+  // New identity and invoice profile relations
+  identities             UserIdentity[]
+  invoiceProfiles        InvoiceProfile[]
+  verifiedIdentities     UserIdentity[]   @relation("VerifiedByUser")
+  lastReviewedIdentities UserIdentity[]   @relation("LastReviewedByUser")
+
+  // UserIdentity Review relations
+  userIdentityReviews UserIdentityReview[] @relation("ReviewedByUser")
+
+  // Documents
+  documents            Document[]             @relation("UserUploads")
+  userDocuments        UserDocument[]         @relation("UserDocuments")
+  documentComments     DocumentComment[]      @relation("UserDocumentComments")
+  documentCommentLikes DocumentCommentLike[]
+  documentProgresses   UserDocumentProgress[] @relation("UserDocumentProgresses")
+  // Activity logs
+  activities           ActivityLog[]          @relation("UserActivities")
+  // Hoạt động KTV — technical activity logs matched by git email
+  technicalActivities  TechnicalActivityLog[] @relation("UserTechnicalActivities")
+
+  // User configs
+  userConfig UserConfig? @relation("UserConfigs")
+
+  // Tagged posts
+  postTags       PostTag[]
+  taggedComments Comment[] @relation("TaggedComments")
+
+  // Payment related
+  wallet                    Wallet?
+  payouts                   Payout[]
+  paymentMethods            UserPaymentMethod[]         @relation("UserPaymentMethods")
+  createdVoucherTemplates   VoucherTemplate[]           @relation("VoucherTemplateCreatedBy")
+  vouchers                  UserVoucher[]               @relation("UserVouchers")
+  voucherWallet             UserVoucherWallet?          @relation("UserVoucherWallet")
+  voucherRedemptions        VoucherRedemption[]         @relation("UserVoucherRedemptions")
+  // Affiliate Relations
+  affiliateWallet           AffiliateWallet?            @relation("UserAffiliateWallet")
+  affiliateCommissions      AffiliateCommission[]       @relation("UserAffiliateCommissions")
+  // Thù lao giới thiệu cổ đông — rewards received (as upline) and sourced (as the downline who leveled up)
+  shareholderReferralRewardsReceived ShareholderReferralReward[] @relation("BeneficiaryShareholderReferralRewards")
+  shareholderReferralRewardsSourced  ShareholderReferralReward[] @relation("SourceShareholderReferralRewards")
+  paidCommissions           AffiliateCommission[]       @relation("UserPaidCommissions")
+  processedCommissions      AffiliateCommissionLog[]    @relation("UserProcessedCommissions")
+  processedWithdrawals      AffiliateWithdrawal[]       @relation("UserProcessedWithdrawals")
+  executedFundDistributions CommunityFundDistribution[] @relation("CommunityFundExecutedBy")
+  // Email Relations
+  emailTemplates            EmailTemplate[]             @relation("EmailTemplateCreatedBy")
+  emailDrafts               EmailDraft[]                @relation("EmailDraftCreatedBy")
+  sentEmails                SentEmail[]                 @relation("SentEmailCreatedBy")
+
+  // Forum Relations
+  forumTopicsCreated    ForumTopic[]           @relation("ForumTopicAuthor")
+  forumTopicsApproved   ForumTopic[]           @relation("ForumTopicApprovedBy")
+  forumComments         ForumComment[]         @relation("ForumCommentAuthor")
+  forumTopicReactions   ForumTopicReaction[]   @relation("ForumTopicReactions")
+  forumCommentReactions ForumCommentReaction[] @relation("ForumCommentReactions")
+  forumTopicFollows     ForumTopicFollow[]     @relation("ForumTopicFollows")
+  forumUserStats        ForumUserStats?        @relation("ForumUserStats")
+  forumReportsCreated   ForumReport[]          @relation("ForumReportReporter")
+  forumReportsReviewed  ForumReport[]          @relation("ForumReportReviewer")
+
+  // Gamification Relations
+  tasksCreated              Task[]                         @relation("TaskCreatedBy")
+  userTasks                 UserTask[]                     @relation("UserTasks")
+  taskVerifications         UserTask[]                     @relation("TaskVerifiedBy")
+  achievementsCreated       Achievement[]                  @relation("AchievementCreatedBy")
+  userAchievements          UserAchievement[]              @relation("UserAchievements")
+  activityStats             UserActivityStats?             @relation("UserActivityStats")
+  activityPointTransactions ActivityPointTransaction[]     @relation("UserActivityPoints")
+  trainingWatchProgress     TrainingVideoWatchProgress[]   @relation("UserTrainingWatchProgress")
+  trainingVideoRatings      TrainingVideoRating[]          @relation("UserTrainingVideoRatings")
+  trainingVideoLikes        TrainingVideoLike[]            @relation("UserTrainingVideoLikes")
+  trainingWallet            TrainingWallet?                @relation("UserTrainingWallet")
+  trainingCareFlag          TrainingCareFlag?              @relation("UserTrainingCareFlag")
+  trainingVideoComments     TrainingVideoComment[]         @relation("UserTrainingComments")
+  trainingCommentReactions  TrainingVideoCommentReaction[] @relation("UserTrainingCommentReactions")
+  trainingVideoBatches      TrainingVideoBatch[]           @relation("UserTrainingVideoBatches")
+  pointTransactions         UserPointTransaction[]         @relation("UserPointTransactions")
+  userStreaks               UserStreak[]                   @relation("UserStreaks")
+  leaderboardEntries        LeaderboardEntry[]             @relation("UserLeaderboardEntries")
+  gamificationEventsCreated GamificationEvent[]            @relation("GamificationEventCreatedBy")
+
+  // Point Shop Relations
+  shopItemsCreated  ShopItem[]          @relation("ShopItemCreatedBy")
+  shopPurchases     ShopPurchase[]      @relation("ShopPurchases")
+  userInventory     UserInventory[]     @relation("UserInventory")
+  // User Titles Relations
+  userTitlesCreated UserTitle[]         @relation("UserTitleCreatedBy")
+  userTitleProgress UserTitleProgress[] @relation("UserTitleProgress")
+
+  // Referral Relations
+  referralsMade    Referral[] @relation("ReferralsMade")
+  referralReceived Referral?  @relation("ReferralReceived")
+
+  // Social/Challenge Relations
+  challengesCreated      Challenge[]             @relation("ChallengesCreated")
+  challengeParticipants  ChallengeParticipant[]  @relation("ChallengeParticipants")
+  linkMeetingAttendances LinkMeetingAttendance[] @relation("UserAttendances")
+  linkMeetingsCreated    LinkMeeting[]           @relation("LinkMeetingsCreated")
+
+  // Season Leaderboard Relations
+  seasonLeaderboardEntries SeasonLeaderboardEntry[] @relation("SeasonLeaderboardEntries")
+
+  // v2 Recognition User
+  recognitions     UserRecognition[] @relation("UserRecognitions")
+  recognizedOthers UserRecognition[] @relation("UserRecognizedBy") //user could recognize others
+
+  // Gratitude Relations
+  gratitudesGiven    OrderGratitude[] @relation("GratitudeGiver")
+  gratitudesReceived OrderGratitude[] @relation("GratitudeBeneficiary")
+
+  // Thù lao kho vận nhận được (neo beneficiary)
+  warehouseLogisticsReceived OrderWarehouseLogistics[] @relation("WarehouseLogisticsBeneficiary")
+
+  // Rankings snapshots
+  userRankings UserRanking[]
+
+  // Redeem Voucher Relations
+  redeemVoucherRequests RedeemVoucherRequest[] @relation("RedeemVoucherRequests")
+
+  // Permission System Relations
+  userPermissions UserPermission[] @relation("UserPermissions")
+  userAdminRoles  UserAdminRole[]  @relation("UserAdminRoles")
+
+  // User Assignment Relations
+  assignedUser  UserAssignment?  @relation("UserAssignment")
+  assignedUsers UserAssignment[] @relation("AssignedUsers")
+
+  // Team Relations
+  teamMembers           TeamMember[]  @relation("UserTeamMembers")
+  teamRequests          TeamRequest[] @relation("UserTeamRequests")
+  teamRequestsPerformed TeamRequest[] @relation("TeamRequestPerformedBy")
+
+  // Task Assign Group Relations (quick-assign supporter groups)
+  taskAssignGroups           TaskAssignGroup[]       @relation("UserTaskAssignGroups")
+  taskAssignGroupMemberships TaskAssignGroupMember[] @relation("UserTaskAssignGroupMemberships")
+
+  // Game Marketing Relations
+  otpRequests  OtpRequest[]  @relation("OtpRequests")
+  gameSessions GameSession[] @relation("GameSessions")
+  dailyLimits  DailyLimit[]  @relation("DailyLimits")
+
+  // Analytics V2 Relations
+  dailyMetrics   UserDailyMetric[]   @relation("UserDailyMetrics")
+  lifetimeMetric UserLifetimeMetric? @relation("UserLifetimeMetrics")
+  analyticsStats UserAnalyticsStats?
+
+  // Completion Requirements
+  completionStatuses UserCompletionStatus[] @relation("UserCompletionStatuses")
+
+  // Completion Requirement Presets
+  completionPresetsCreated   CompletionRequirementPreset[] @relation("CompletionPresetCreatedBy")
+  completionPresetsActivated CompletionRequirementPreset[] @relation("CompletionPresetActivatedBy")
+
+  // Recognition grant history (generic, currently used for MSTL elder)
+  recognitionGrantHistory        RecognitionGrantHistory[] @relation("UserGrantHistory")
+  recognitionGrantHistoryActions RecognitionGrantHistory[] @relation("HistoryPerformedBy")
+  userRecognitionsLastReviewed   UserRecognition[]         @relation("UserRecognitionLastReviewedBy")
+
+  // MSTL (elder) auto-qualification tracking — exact moment the user first met
+  // every active-preset criterion, driving the admin "chưa công nhận" broadcast.
+  mstlEligibilityState MstlEligibilityState? @relation("UserMstlEligibility")
+
+  // Highest sharing level for which a PERSONAL (login-time) confetti was already
+  // shown — guarantees the personal celebration fires once per level milestone.
+  shareholderCelebration UserShareholderCelebration? @relation("UserShareholderCelebration")
+
+  // Error logs
+  errorLogs ErrorLog[] @relation("userErrorLogs")
+
+  // Maintenance Window Relations
+  maintenanceWindowsCreated MaintenanceWindow[] @relation("MaintenanceCreatedBy")
+  maintenanceWindowsUpdated MaintenanceWindow[] @relation("MaintenanceUpdatedBy")
+
+  // Product Review Relations
+  productReviewsSubmitted ProductReview[]         @relation("ProductReviewSubmitter")
+  productReviewsReviewed  ProductReview[]         @relation("ProductReviewReviewer")
+  productReviewAuditLogs  ProductReviewAuditLog[] @relation("ProductReviewAuditPerformer")
+
+  userPersonalCommissions        PersonalCommission[] @relation("UserPersonalCommissions")
+  UserCreatedPersonalCommissions PersonalCommission[] @relation("UserCreatedPersonalCommissions")
+  UserUpdatedPersonalCommissions PersonalCommission[] @relation("UserUpdatedPersonalCommissions")
+
+  // Personal Commission Audit Log Relations
+  pcAuditActions PersonalCommissionAuditLog[] @relation("PersonalCommissionAuditActors")
+
+  // Business Team Revenue Relations
+  businessTeamRevenueShares BusinessTeamRevenueShare[]
+
+  // Team Commission Relations
+  teamCommissions            TeamCommission[]         @relation("UserTeamCommissions")
+  teamCommissionsCreated     TeamCommission[]         @relation("TeamCommissionCreatedBy")
+  teamCommissionAuditActions TeamCommissionAuditLog[] @relation("TeamCommissionAuditActors")
+
+  // Business Review Relations
+  businessReviewsSubmitted BusinessReview[]         @relation("BusinessReviewSubmitter")
+  businessReviewsReviewed  BusinessReview[]         @relation("BusinessReviewReviewer")
+  businessReviewAuditLogs  BusinessReviewAuditLog[] @relation("BusinessReviewAuditPerformer")
+
+  trainingVideoReviewsSubmitted TrainingVideoReview[]         @relation("TrainingVideoReviewSubmitter")
+  trainingVideoReviewsReviewed  TrainingVideoReview[]         @relation("TrainingVideoReviewReviewer")
+  trainingVideoReviewAuditLogs  TrainingVideoReviewAuditLog[] @relation("TrainingVideoReviewAuditActor")
+
+  // Warehouse Review Relations
+  warehouseReviewsSubmitted WarehouseReview[]         @relation("WarehouseReviewSubmitter")
+  warehouseReviewsReviewed  WarehouseReview[]         @relation("WarehouseReviewReviewer")
+  warehouseReviewAuditLogs  WarehouseReviewAuditLog[] @relation("WarehouseReviewAuditActor")
+
+  // Affiliate Purchase Point Request Relations
+  affiliatePointRequestsCreated  AffiliatePurchasePointRequest[]         @relation("AffiliatePointRequestCreatedBy")
+  affiliatePointRequestsReceived AffiliatePurchasePointRequest[]         @relation("AffiliatePointRequestTarget")
+  affiliatePointRequestsReviewed AffiliatePurchasePointRequest[]         @relation("AffiliatePointRequestReviewer")
+  affiliatePointRequestsRefunded AffiliatePurchasePointRequest[]         @relation("AffiliatePointRequestRefunder")
+  affiliatePointRequestAuditLogs AffiliatePurchasePointRequestAuditLog[] @relation("AffiliatePointRequestAuditActor")
+  brandReviewsSubmitted          BrandReview[]                           @relation("BrandReviewSubmitter")
+  brandReviewsReviewed           BrandReview[]                           @relation("BrandReviewReviewer")
+
+  // Category + Brand Audit Log Relations (Phase 30)
+  categoryAuditLogs     CategoryAuditLog[] @relation("CategoryAuditActor")
+  categoryAuditUndoLogs CategoryAuditLog[] @relation("CategoryAuditUndoneBy")
+  brandAuditLogs        BrandAuditLog[]    @relation("BrandAuditActor")
+  brandAuditUndoLogs    BrandAuditLog[]    @relation("BrandAuditUndoneBy")
+
+  // Order Review Relations
+  orderReviewsSubmitted OrderReview[]         @relation("OrderReviewSubmitter")
+  orderReviewsReviewed  OrderReview[]         @relation("OrderReviewReviewer")
+  orderReviewAuditLogs  OrderReviewAuditLog[] @relation("OrderReviewAuditActor")
+
+  // Voucher Review Relations
+  voucherReviewSubmissions VoucherReview[]         @relation("VoucherReviewSubmitter")
+  voucherReviewActions     VoucherReview[]         @relation("VoucherReviewReviewer")
+  voucherReviewAuditLogs   VoucherReviewAuditLog[] @relation("VoucherReviewAuditPerformer")
+
+  // Category Review Relations
+  categoryReviewSubmissions CategoryReview[]         @relation("CategoryReviewSubmitter")
+  categoryReviewActions     CategoryReview[]         @relation("CategoryReviewReviewer")
+  categoryReviewAuditLogs   CategoryReviewAuditLog[] @relation("CategoryReviewAuditPerformer")
+
+  // Invoice Review Relations
+  invoiceReviewSubmissions InvoiceReview[]         @relation("InvoiceReviewSubmitter")
+  invoiceReviewActions     InvoiceReview[]         @relation("InvoiceReviewReviewer")
+  invoiceReviewAuditLogs   InvoiceReviewAuditLog[] @relation("InvoiceReviewAuditPerformer")
+
+  // News Review Relations
+  newsReviewSubmissions NewsReview[]         @relation("NewsReviewSubmitter")
+  newsReviewActions     NewsReview[]         @relation("NewsReviewReviewer")
+  newsReviewAuditLogs   NewsReviewAuditLog[] @relation("NewsReviewAuditPerformer")
+
+  // Document Review Relations
+  documentReviewSubmissions DocumentReview[]         @relation("DocumentReviewSubmitter")
+  documentReviewActions     DocumentReview[]         @relation("DocumentReviewReviewer")
+  documentReviewAuditLogs   DocumentReviewAuditLog[] @relation("DocumentReviewAuditPerformer")
+
+  // Forum Topic Review Relations
+  forumTopicReviewSubmissions ForumTopicReview[]         @relation("ForumTopicReviewSubmitter")
+  forumTopicReviewActions     ForumTopicReview[]         @relation("ForumTopicReviewReviewer")
+  forumTopicReviewAuditLogs   ForumTopicReviewAuditLog[] @relation("ForumTopicReviewAuditPerformer")
+
+  // Moment Review Relations
+  momentReviewSubmissions MomentReview[]         @relation("MomentReviewSubmitter")
+  momentReviewActions     MomentReview[]         @relation("MomentReviewReviewer")
+  momentReviewAuditLogs   MomentReviewAuditLog[] @relation("MomentReviewAuditPerformer")
+
+  // Livestream Review Relations
+  livestreamReviewSubmissions LivestreamReview[]         @relation("LivestreamReviewSubmitter")
+  livestreamReviewActions     LivestreamReview[]         @relation("LivestreamReviewReviewer")
+  livestreamReviewAuditLogs   LivestreamReviewAuditLog[] @relation("LivestreamReviewAuditPerformer")
+
+  // Story Review Relations
+  storyReviewSubmissions StoryReview[]         @relation("StoryReviewSubmitter")
+  storyReviewActions     StoryReview[]         @relation("StoryReviewReviewer")
+  storyReviewAuditLogs   StoryReviewAuditLog[] @relation("StoryReviewAuditPerformer")
+
+  // Bug Report Relations
+  bugReportsCreated  BugReport[]         @relation("BugCreator")
+  bugReportsAssigned BugReport[]         @relation("BugAssignee") // LEGACY single-assignee; dropped post-backfill
+  bugComments        BugComment[]        @relation("BugCommenter")
+  bugAssignments     BugAssignment[]     @relation("BugAssignments")
+  bugReportAuditLogs BugReportAuditLog[] @relation("BugReportAuditPerformer")
+
+  // Warehouse Manager Assignment Relations
+  managerAssignments                WarehouseManagerAssignment[]         @relation("ManagerAssignmentManager")
+  requestedManagerAssignments       WarehouseManagerAssignment[]         @relation("ManagerAssignmentRequester")
+  approvedManagerAssignments        WarehouseManagerAssignment[]         @relation("ManagerAssignmentApprover")
+  rejectedManagerAssignments        WarehouseManagerAssignment[]         @relation("ManagerAssignmentRejecter")
+  revokedManagerAssignments         WarehouseManagerAssignment[]         @relation("ManagerAssignmentRevoker")
+  managerAssignmentAuditLogs        WarehouseManagerAssignmentAuditLog[] @relation("ManagerAssignmentAuditActor")
+  warehouseLogisticsBackfillActions WarehouseLogisticsBackfillAuditLog[] @relation("WarehouseLogisticsBackfillActor")
+  warehouseReportSendLogs           WarehouseReportSendLog[]             @relation("WarehouseReportRecipient")
+  warehouseReportConfigUpdates      WarehouseReportConfig[]              @relation("WarehouseReportConfigUpdater")
+
+  // Warehouse Assignment Relations
+  assignedWarehouseOrders OrderWarehouseAssignment[] @relation("AssignedWarehouseOrders")
+  warehouseDecisions      OrderWarehouseDecision[]   @relation("WarehouseDecisionActor")
+
+  // Gift Template Relations
+  giftTemplatesCreated GiftTemplate[] @relation("GiftTemplateCreatedBy")
+
+  // Product Availability Subscriptions
+  productAvailabilitySubscriptions ProductAvailabilitySubscription[] @relation("UserProductAvailabilitySubscriptions")
+
+  // Diadiem Relations
+  businessBrandsCreated          BusinessBrand[]               @relation("BusinessBrandCreatedBy")
+  // Tên quan hệ "UserCheckIns" GIỮ NGUYÊN qua lần gộp 07/09/2026 dù model đổi
+  // tên: tên quan hệ Prisma là thứ sinh ra tên ràng buộc trong CSDL, đổi nó là
+  // thêm một cặp drop/add constraint vào migration mà không đổi lấy gì.
+  warehouseCheckIns              WarehouseCheckIn[]            @relation("UserCheckIns")
+  diemCauReviews                 DiemCauReview[]               @relation("UserDiemCauReviews")
+  businessClaims                 BusinessClaim[]               @relation("UserClaims")
+  businessClaimsReviewed         BusinessClaim[]               @relation("UserClaimsReviewed")
+  businessComplianceDocsVerified BusinessComplianceDoc[]       @relation("DocVerifier")
+  businessComplianceReviewed     BusinessComplianceChecklist[] @relation("ComplianceReviewer")
+  locationReportsSubmitted       WarehouseViolationReport[]    @relation("UserReportsSubmitted")
+  locationReportsResolved        WarehouseViolationReport[]    @relation("UserReportsResolved")
+  savedPlaces                    SavedPlace[]
+  warehouseViews                 WarehouseView[]
+  diadiemNotifications           DiadiemNotification[]         @relation("DiadiemNotifications")
+  qrTokensUsed                   QrToken[]                     @relation("UserQrTokensUsed")
+  voucherTemplatesApproved       VoucherTemplate[]             @relation("VoucherTemplateApprovedBy")
+
+  // Multiverse - Mission System
+  missionsAssigned   Mission[]           @relation("MissionAssignedTo")
+  missionsClaimed    Mission[]           @relation("MissionClaimedBy")
+  missionsCreated    Mission[]           @relation("MissionCreatedBy")
+  missionSubmissions MissionSubmission[] @relation("MissionSubmissionSubmittedBy")
+  missionReviews     MissionReview[]     @relation("MissionReviewReviewer")
+
+  // Multiverse - Community Conversations
+  communityMessagesAuthored           CommunityMessage[]                 @relation("CommunityMessageAuthor")
+  communityConversationParticipations CommunityConversationParticipant[] @relation("CommunityConversationParticipants")
+
+  // Multiverse - Notification Preferences
+  notificationPreferences NotificationPreference[] @relation("UserNotificationPreferences")
+
+  // Multiverse - Executive Audit View (immutable)
+  executiveAuditViewsAsActor  ExecutiveAuditView[] @relation("ExecutiveAuditViewActor")
+  executiveAuditViewsAsTarget ExecutiveAuditView[] @relation("ExecutiveAuditViewTargetUser")
+
+  // Business Registration Form Relations
+  businessForms                             BusinessForm[]                     @relation("BusinessFormSubmitter")
+  reviewedBusinessForms                     BusinessForm[]                     @relation("BusinessFormReviewer")
+  authoredBusinessFormProgressNotes         BusinessFormProgressNote[]         @relation("BusinessFormProgressAuthor")
+  adminCreatedBusinessForms                 BusinessForm[]                     @relation("BusinessFormAdminCreator")
+  uploadedBusinessFormAttachments           BusinessFormAttachment[]           @relation("BusinessFormAttachmentUploader")
+  verifiedBusinessFormAttachments           BusinessFormAttachment[]           @relation("BusinessFormAttachmentVerifier")
+  assignedBusinessForms                     BusinessForm[]                     @relation("BusinessFormAssignee")
+  assignedByMeBusinessForms                 BusinessForm[]                     @relation("BusinessFormAssigner")
+  authoredBusinessFormRiskFlags             BusinessFormRiskFlag[]             @relation("BusinessFormRiskFlagAuthor")
+  businessFormTaskAssignments               BusinessFormTaskAssignment[]       @relation("BusinessFormTaskAssignee")
+  assignedByBusinessFormTasks               BusinessFormTaskAssignment[]       @relation("BusinessFormTaskAssigner")
+  createdBusinessFormTasks                  BusinessFormTask[]                 @relation("BusinessFormTaskCreator")
+  completedBusinessFormTasks                BusinessFormTask[]                 @relation("BusinessFormTaskCompleter")
+  mainAssignedBusinessFormTasks             BusinessFormTask[]                 @relation("BusinessFormTaskMainAssignee")
+  authoredBusinessFormTaskActivities        BusinessFormTaskActivity[]         @relation("BusinessFormTaskActivityAuthor")
+  onBehalfOfBusinessFormTasks               BusinessFormTask[]                 @relation("BusinessFormTaskOnBehalfOf")
+  onBehalfOfBusinessFormTaskActivities      BusinessFormTaskActivity[]         @relation("BusinessFormTaskActivityOnBehalfOf")
+  authoredBusinessFormTaskActivityReactions BusinessFormTaskActivityReaction[] @relation("BusinessFormTaskActivityReactionAuthor")
+  businessFormTaskPins                      BusinessFormTaskPin[]              @relation("BusinessFormTaskPinner")
+
+  // Half Wallet Relations
+  halfWallets          HalfWallet[]          @relation("UserHalfWallets")
+  halfTransferRequests HalfTransferRequest[] @relation("UserHalfTransferRequests")
+  halfManualsReceived  HalfTransferManual[]  @relation("HalfManualRecipient")
+  halfManualsCreated   HalfTransferManual[]  @relation("HalfManualCreatedBy")
+  halfWalletLogs       HalfWalletLog[]       @relation("HalfWalletLogActor")
+
+  // Babysitter Flow Relations (v1.2)
+  babyRecords     Baby[]           @relation("UserBaby")
+  babiesManaged   Baby[]           @relation("BabysitterBabies")
+  babyLogActions  BabyLog[]        @relation("BabyLogActor")
+  babysitterTasks BabysitterTask[] @relation("BabysitterTasks")
+
+  // Group-Buy Relations (v1.3)
+  leaderGroupBuys     GroupBuy[]       @relation("GroupBuyLeader")
+  groupBuyMemberships GroupBuyMember[] @relation("UserGroupBuyMemberships")
+  groupBuyLogActions  GroupBuyLog[]    @relation("GroupBuyLogActor")
+
+  // Thẻ nhân viên — xem employee-card.prisma
+  employeeCards EmployeeCard[] @relation("UserEmployeeCards")
+
+  // Báo cáo hằng ngày — xem daily-report.prisma
+  dailyReports DailyReport[] @relation("UserDailyReports")
+
+  // Performance indexes for referral queries
+  @@index([referrerId])
+  @@index([referrerId, status])
+  @@index([referrerId, verificationDate])
+  @@index([status, verificationDate])
+  @@index([createdAt])
+  @@index([email])
+  @@index([phoneNumber])
+  @@index([status])
+  @@index([role])
+  @@index([isActive])
+  @@index([updatedAt])
+  @@index([zuid])
+  @@index([lastSeenAt]) // For presence queries
+  @@index([businessId])
+  // Lọc "tài khoản nào đến từ luồng nào, trong khoảng nào" — câu hỏi truy vết chính.
+  @@index([registrationChannel, createdAt])
+  // Hàng đợi "tài khoản được gán tài khoản nhà, chờ người vận hành gán đúng người".
+  @@index([referrerAssignment, createdAt])
+  // @@index([phoneNumber])
+  @@map("users")
+}
+
+// ============================================================================
+// USER ASSIGNMENT - Admin-User Assignment System
+// ============================================================================
+
+model UserAssignment {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation("UserAssignment", fields: [userId], references: [id], onDelete: Cascade)
+
+  assignedAdminId String
+  assignedAdmin   User   @relation("AssignedUsers", fields: [assignedAdminId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime  @default(now())
+  assignedBy String? // Admin who made this assignment
+  expiresAt  DateTime? // Optional expiration
+  notes      String? // Admin notes
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([assignedAdminId])
+  @@index([assignedAt])
+  @@index([expiresAt])
+  @@map("user_assignments")
+}
+
+model UserConfig {
+  id String @id @default(uuid())
+
+  config Json
+
+  userId String @unique
+  user   User   @relation("UserConfigs", fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_configs")
+}
+
+model UserReferralClosure {
+  id    String @id @default(uuid())
+  depth Int // 0 = self, 1 = direct, 2 = indirect, ...
+
+  ancestorId String
+  ancestor   User   @relation("Ancestor", fields: [ancestorId], references: [referenceId])
+
+  descendantId String
+  descendant   User   @relation("Descendant", fields: [descendantId], references: [referenceId])
+
+  @@unique([ancestorId, descendantId])
+  @@index([ancestorId])
+  @@index([descendantId])
+  @@index([ancestorId, depth]) // Phase 88 D-88-E-4 — per-member-per-depth downline count for Phase 90 QUAL-01/02 cron
+  @@map("user_referral_closures")
+}
+
+model UserKYC {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation("UserKYC", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Personal Information
+  fullName    String
+  dateOfBirth DateTime
+  nationality String
+  address     String
+
+  // KYC Information
+  kycNumber  String
+  kycFileUrl String? // Single file URL
+
+  // Status
+  status  KycStatus @default(pending)
+  message String?
+
+  // Timestamps
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+
+  reviewedById String?
+  reviewedBy   User?    @relation("UserKYCReviewedBy", fields: [reviewedById], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("user_kyc")
+}

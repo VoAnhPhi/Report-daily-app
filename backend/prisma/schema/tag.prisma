@@ -1,0 +1,65 @@
+// Product tag system (global scope, no per-business tagging).
+// Mirrors the WarehouseTag / WarehouseTagMap pattern from
+// business-location.prisma:125-156 — explicit join with @@unique to keep
+// the door open for future per-map metadata (sortOrder, addedBy, etc.).
+
+// Nhóm thẻ sản phẩm (VD: "Phong cách", "Mùa", "Khuyến mãi")
+model TagGroup {
+  id          String  @id @default(cuid())
+  name        String // Tên hiển thị (VD: "Phong cách")
+  slug        String  @unique // Định danh máy đọc (VD: "phong-cach")
+  description String?
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  // Quan hệ
+  tags Tag[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([sortOrder])
+  @@map("tag_groups")
+}
+
+// Thẻ sản phẩm (VD: "Hàng mới", "Bán chạy", "Limited")
+model Tag {
+  id          String  @id @default(cuid())
+  name        String // Tên hiển thị (VD: "Hàng mới")
+  slug        String  @unique // Định danh máy đọc (VD: "hang-moi")
+  description String?
+  isActive    Boolean @default(true)
+
+  // Nhóm (tùy chọn — thẻ có thể không thuộc nhóm nào)
+  tagGroupId String?
+  tagGroup   TagGroup? @relation(fields: [tagGroupId], references: [id], onDelete: SetNull)
+
+  // Quan hệ nhiều-nhiều với sản phẩm
+  productMaps ProductTagMap[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tagGroupId])
+  @@index([isActive])
+  @@map("tags")
+}
+
+// Bảng trung gian sản phẩm ↔ thẻ
+model ProductTagMap {
+  id String @id @default(cuid())
+
+  productId String
+  product   Product @relation("ProductTagMaps", fields: [productId], references: [id], onDelete: Cascade)
+
+  tagId String
+  tag   Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([productId, tagId])
+  @@index([productId])
+  @@index([tagId])
+  @@map("product_tag_maps")
+}

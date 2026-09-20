@@ -1,0 +1,14 @@
+{
+  "language": "ts",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "assets": [
+      {
+        "include": "shrine/data/*.json",
+        "outDir": "dist/src"
+      }
+    ],
+    "watchAssets": true
+  }
+}

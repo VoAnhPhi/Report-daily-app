@@ -1,0 +1,51 @@
+// CustomerProductRecommendation — Phase 37.5 precomputed per-customer rec list (RECSYS-37.5-01).
+// The offline sweep (BullMQ, §20 standalone upserts) fuses the content arm (Phase-37 halfvec
+// cosine) + collaborative arm (NPMI co-purchase) per purchased anchor and writes the final
+// ranked list here, so the read path is a single indexed SELECT with ZERO inference.
+//
+// Tenant-scoped by businessId (JWT-derived downstream, never trusted from payload — §28); the
+// @@unique + @@index both LEAD with businessId. Recs are derived data: onDelete: Cascade on the
+// Customer relation purges them on customer delete (D-05); modelVersion GC (current + N-1) bounds
+// growth in the sweep (37.5-03). The @@unique([businessId, customerId, productId, modelVersion])
+// makes the batch upsert idempotent (§20). isRepurchaseCandidate (D-02) is materialized here but
+// NOT surfaced this phase — all read paths filter it out (reserved for a future "Mua lại" phase).
+// reasonProductId is the "bạn đã mua" anchor that drives the tiếng-Việt copy
+// "Liên quan đến <sản phẩm> bạn đã mua" without an extra lookup.
+
+model CustomerProductRecommendation {
+  id String @id @default(cuid())
+
+  // Khách hàng sở hữu danh sách gợi ý — purge theo khách (D-05 derived-data retention)
+  customerId String
+  customer   Customer @relation("CustomerRecommendations", fields: [customerId], references: [id], onDelete: Cascade)
+
+  // Multi-tenant scoping (nullable mirroring Order/Customer.businessId)
+  businessId String?
+
+  // Sản phẩm LIVE được gợi ý (join lại Product lúc đọc để lấy giá/sellability/chuỗi VN hiện tại)
+  productId String
+  product   Product @relation("ProductRecommendedTo", fields: [productId], references: [id])
+
+  // Sản phẩm "bạn đã mua" đã neo gợi ý này → dựng copy tiếng Việt (nullable)
+  reasonProductId String?
+  reasonProduct   Product? @relation("ProductRecommendationReason", fields: [reasonProductId], references: [id])
+
+  score            Float
+  rank             Int
+  source           String // 'content' | 'copurchase' | 'fused'
+  sourceOrderCount Int?
+
+  // D-02: stored-not-surfaced repurchase flag (reserved for a future "Mua lại" phase)
+  isRepurchaseCandidate Boolean @default(false)
+
+  // Atomic cutover — reads filter modelVersion = current (D-05 keep current + N-1)
+  modelVersion Int
+
+  computedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([businessId, customerId, productId, modelVersion]) // idempotent upsert (§20)
+  @@index([businessId, customerId, modelVersion, rank]) // single-seek read
+  @@map("customer_product_recommendations")
+}

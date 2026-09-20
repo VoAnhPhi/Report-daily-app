@@ -1,0 +1,58 @@
+erDiagram
+  USER {
+    string id PK
+  }
+  TASK_ASSIGN_GROUP {
+    string id PK
+  }
+  TEAM {
+    string id PK
+  }
+  DAILY_REPORT_SCOPE {
+    string id PK
+    string scopeType
+    string assignGroupId FK
+    string teamId FK
+    string templateId FK
+  }
+  DAILY_REPORT_TEMPLATE {
+    string id PK
+    string name
+  }
+  DAILY_REPORT_TEMPLATE_VERSION {
+    string id PK
+    string templateId FK
+    int version
+  }
+  DAILY_REPORT {
+    string id PK
+    string scopeId FK
+    string userId FK
+    string templateVersionId FK
+    date reportDate
+    string status
+  }
+  DAILY_REPORT_QUESTION {
+    string id PK
+    string templateId FK
+    string templateVersionId FK
+    string label
+  }
+  DAILY_REPORT_ANSWER {
+    string id PK
+    string reportId FK
+    string questionId FK
+    string content
+  }
+
+  TASK_ASSIGN_GROUP o|..o{ DAILY_REPORT_SCOPE : "nhóm giao việc"
+  TEAM o|..o{ DAILY_REPORT_SCOPE : "đội phòng ban"
+  DAILY_REPORT_TEMPLATE ||..o{ DAILY_REPORT_SCOPE : "bộ câu hỏi"
+  DAILY_REPORT_TEMPLATE ||..o{ DAILY_REPORT_TEMPLATE_VERSION : "có phiên bản"
+  DAILY_REPORT_TEMPLATE ||..o{ DAILY_REPORT_QUESTION : "có câu hỏi"
+  DAILY_REPORT_SCOPE ||..o{ DAILY_REPORT : "sinh báo cáo"
+  USER ||..o{ DAILY_REPORT : "là chủ bản"
+  DAILY_REPORT_TEMPLATE_VERSION o|..o{ DAILY_REPORT : "bộ câu hỏi lúc tạo"
+  DAILY_REPORT_TEMPLATE_VERSION o|..o{ DAILY_REPORT_QUESTION : "gồm câu hỏi"
+  DAILY_REPORT ||..o{ DAILY_REPORT_ANSWER : "gồm câu trả lời"
+  DAILY_REPORT_QUESTION ||..o{ DAILY_REPORT_ANSWER : "được trả lời"

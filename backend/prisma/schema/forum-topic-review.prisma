@@ -1,0 +1,76 @@
+enum ForumTopicReviewType {
+  create
+  update
+  delete
+}
+
+enum ForumTopicReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model ForumTopicReview {
+  id String @id @default(cuid())
+
+  type   ForumTopicReviewType
+  status ForumTopicReviewStatus @default(pending)
+
+  // Snapshot of the proposed forum topic data (full JSON for create/update, null for delete)
+  proposedData Json? // Full forum topic payload
+  previousData Json? // Snapshot of current forum topic state before change (for update/delete)
+
+  // ForumTopic reference (null for create since topic doesn't exist yet)
+  forumTopicId String?
+  forumTopic   ForumTopic? @relation(fields: [forumTopicId], references: [id], onDelete: SetNull)
+
+  // Submitter
+  submittedById String
+  submittedBy   User     @relation("ForumTopicReviewSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime @default(now())
+
+  // Reviewer (filled on approve/reject)
+  reviewedById String?
+  reviewedBy   User?     @relation("ForumTopicReviewReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  // Reviewer feedback
+  reviewNote   String?  @db.Text
+  reviewImages String[] // uploadthing URLs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Audit log entries
+  auditLogs ForumTopicReviewAuditLog[]
+
+  @@index([status])
+  @@index([type])
+  @@index([forumTopicId])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([createdAt])
+  @@map("forum_topic_reviews")
+}
+
+model ForumTopicReviewAuditLog {
+  id String @id @default(cuid())
+
+  action   String // submitted, approved, rejected, cancelled
+  note     String? @db.Text
+  metadata Json? // Any extra context
+
+  performedById String
+  performedBy   User   @relation("ForumTopicReviewAuditPerformer", fields: [performedById], references: [id])
+
+  reviewId String
+  review   ForumTopicReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([performedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("forum_topic_review_audit_logs")
+}

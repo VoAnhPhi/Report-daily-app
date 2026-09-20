@@ -1,0 +1,590 @@
+{
+  "nav": {
+    "home": "Home",
+    "about": "About Us",
+    "services": "Services",
+    "news": "News",
+    "contact": "Contact",
+    "login": "Login",
+    "register": "Register"
+  },
+  "buttons": {
+    "discount": "Discount",
+    "meetings": "Meetings",
+    "partners": "Partners",
+    "manage": "Manage",
+    "wallet": "Document Wallet",
+    "shop": "Shop"
+  },
+  "ui": {
+    "language": "Language",
+    "theme": "Theme",
+    "apps": "Apps",
+    "theme_label": "Theme",
+    "festive_themes": "Holiday Themes",
+    "display_options": "Display Options",
+    "landscape_bg": "Landscape Wallpaper",
+    "video_training": "Training Videos",
+    "effects_hint": "Disable effects if your machine lags",
+    "screen_effects": "Screen falling effects",
+    "screen_effects_hint": "Falling leaves / snow effect"
+  },
+  "contact": {
+    "phone": "0912 880 330",
+    "email": "lienhe@acta.vn",
+    "address": "180 Dien Bien Phu, Xuan Hoa Ward, Ho Chi Minh City"
+  },
+  "section": {
+    "news": {
+      "title": "Tin Tức & Sự Kiện Nổi Bật",
+      "subtitle": "Cập nhật những tin tức mới nhất về ngành kế toán, sự kiện đào tạo và hoạt động của ACTA",
+      "daily_updates": "Cập nhật hàng ngày",
+      "followers": "5,000+ thành viên theo dõi",
+      "industry_wide": "Tin tức toàn ngành",
+      "latest_badge": "Cập nhật mới nhất"
+    }
+  },
+  "label": {
+    "event": "Event",
+    "announcement": "Recruitment",
+    "education": "Education",
+    "partnership": "Partnership",
+    "achievement": "Achievement"
+  },
+  "news": {
+    "featured": "Featured",
+    "workshop": {
+      "title": "Workshop Affiliate Marketing: Successful Strategy 2024",
+      "desc": "The largest Affiliate Marketing training event of the year with top experts participation"
+    },
+    "conference": {
+      "title": "ACTA Annual Conference 2024",
+      "desc": "Summarizing 2023 activities and outlining development for 2024"
+    },
+    "training": {
+      "title": "Affiliate Marketing Course from A-Z",
+      "desc": "Comprehensive training program for beginners"
+    },
+    "partnership": {
+      "title": "New Strategic Partnership",
+      "desc": "Expanding global partner network"
+    },
+    "award": {
+      "title": "Excellence Award",
+      "desc": "Honoring outstanding members"
+    },
+    "latest": "Tin tức mới nhất",
+    "view_all": "Xem tất cả tin tức",
+    "category": {
+      "policy": "Chính sách & Quy định",
+      "product": "Sản phẩm & Dịch vụ",
+      "achievement": "Thành tích & Giải thưởng",
+      "event": "Sự kiện & Hội thảo"
+    },
+    "commission": {
+      "title": "Cập nhật chính sách chiết khấu và ưu đãi Q1/2024"
+    },
+    "platform": {
+      "title": "Ra mắt nền tảng quản lý Affiliate ACTA Pro 2.0"
+    },
+    "top10": {
+      "title": "Vinh danh Top 10 Affiliate xuất sắc tháng 12/2023"
+    },
+    "event": {
+      "title": "Chuỗi sự kiện đào tạo Affiliate Marketing Q1/2024"
+    },
+    "time": {
+      "1hour": "1 giờ trước",
+      "2hours": "2 giờ trước",
+      "1day": "1 ngày trước",
+      "2days": "2 ngày trước"
+    }
+  },
+  "hero": {
+    "title": "ACTA.VN",
+    "subtitle": "ACTA.VN",
+    "slogan": "Peak Connections, Sustainable Profits"
+  },
+  "footer": {
+    "quicklinks": "Quick Links",
+    "follow": "Follow Us",
+    "copyright": "© 2026 ACTA. All rights reserved.",
+    "viewmap": "View detailed map",
+    "phone_label": "Phone:",
+    "email_label": "Email:",
+    "policies": {
+      "inspection": "Goods Inspection Policy",
+      "shipping": "Shipping Policy",
+      "return_cancellation": "Return & Cancellation Policy",
+      "invoice_revenue": "Invoice & Revenue Policy",
+      "complaints": "Complaint Handling Process",
+      "contact": "Contact Information",
+      "faq": "Frequently Asked Questions"
+    }
+  },
+  "community": {
+    "moments": {
+      "title": "Community Moments",
+      "subtitle": "A place to connect and share professional knowledge"
+    },
+    "trending": {
+      "title": "Trending",
+      "tag": {
+        "digitalLaw": "DigitalLaw",
+        "acta": "ACTA",
+        "ecommerce": "Ecommerce",
+        "vietnam": "VietNam",
+        "affiliate": "Affiliate"
+      }
+    },
+    "search": {
+      "quick": "Quick search..."
+    },
+    "feed": {
+      "tabs": {
+        "all": "All",
+        "following": "Following",
+        "popular": "Popular",
+        "new_posts": "New Posts",
+        "active_posts": "Active Discussions",
+        "pro_posts": "Featured Posts"
+      },
+      "sort": {
+        "latest": "Latest",
+        "popular": "Popular",
+        "trending": "Trending",
+        "most_reacted": "Most Reacted",
+        "most_commented": "Most Commented",
+        "only_pending": "Pending Approval Only"
+      },
+      "filter": {
+        "all": "All posts",
+        "verified": "Verified",
+        "media": "With media",
+        "my_posts": "My posts",
+        "search_placeholder": "Search posts...",
+        "clear_search": "Clear search",
+        "filter_button": "Filters",
+        "pending_approval": "Pending",
+        "pending_approval_full": "Pending Approval Posts",
+        "member_badge": "Member: {id}",
+        "posts_count": "{count} posts",
+        "reset": "Reset"
+      },
+      "empty": {
+        "title": "No posts yet",
+        "subtitle": "Create the first post to share with the community!",
+        "pro_title": "No featured posts yet",
+        "pro_subtitle": "Curated high-quality community posts will appear here.",
+        "active_title": "No active discussions yet",
+        "active_subtitle": "Posts with the most engagement in the community will appear here.",
+        "view_all_new": "View all new posts"
+      },
+      "all_caught_up": "🎉 You have seen all posts!",
+      "active_banner": {
+        "title": "Active Community Discussions",
+        "subtitle": "Discussions with the highest community engagement",
+        "period_24h": "24 hours",
+        "period_7d": "7 days",
+        "period_30d": "30 days"
+      },
+      "pro_banner": {
+        "title": "Curated Featured Posts",
+        "subtitle": "In-depth insights and valuable content from members"
+      },
+      "load_more": "Load more posts",
+      "end_of_feed": "✦ You have reached the end of today's feed ✦",
+      "all_caught_up_pro": "🎉 You're all caught up with featured posts today!",
+      "all_caught_up_active": "🎉 You're all caught up with active discussions!",
+      "all_caught_up_sub_filtered": "Switch tabs or create a new post to connect with the community.",
+      "all_caught_up_sub_default": "Check back later for fresh updates and discussions."
+    },
+    "composer": {
+      "placeholder": "what's on your mind?",
+      "live_video": "Live video",
+      "photo_video": "Photo/Video",
+      "feeling": "Feeling",
+      "placeholder_user": "What's on your mind, {name}?",
+      "cooldown_toast": "You can create a new post in {time}.",
+      "cooldown_toast_desc": "Each member can post once every {minutes} minutes.",
+      "cooldown_label": "Can post again in",
+      "cooldown_inline_desc": "Posting interval: one post every {minutes} minutes.",
+      "submitted_pending": "Your post has been submitted and is awaiting community review!",
+      "created_success": "Your post was published successfully!"
+    },
+    "latest_moments": "Latest moments",
+    "no_moments": "No moments yet",
+    "new_members": "New members",
+    "no_new_members": "No new members",
+    "navigation": {
+      "aria_label": "Community Navigation",
+      "create_post": "Create Post",
+      "sections": {
+        "feed": "Feed",
+        "discover": "Discover",
+        "resources": "Resources",
+        "apps": "Apps"
+      },
+      "items": {
+        "for_you": "For You",
+        "my_posts": "My Posts",
+        "saved": "Saved",
+        "events_news": "Events & News",
+        "offers": "Offers",
+        "training_videos": "Training Videos",
+        "qa_forum": "Q&A Forum",
+        "documents": "Document Archive",
+        "management": "Management",
+        "redirecting": "Redirecting...",
+        "discount": "Discount",
+        "meetings": "Meetings",
+        "partners": "Partners"
+      },
+      "saved_toast_title": "Saved posts filter is active",
+      "saved_toast_desc": "The saved posts collection will be available soon."
+    },
+    "shareholders": {
+      "title": "Community Shareholders",
+      "connecting_members": "connected members",
+      "featured_members": "Featured connected members",
+      "view_all": "View all",
+      "scroll_left": "Scroll left",
+      "scroll_right": "Scroll right"
+    },
+    "post": {
+      "feature_developing": "Feature under development",
+      "copy_link_success": "Post link copied to clipboard!",
+      "delete_success": "Post deleted successfully!",
+      "delete_error": "Unable to delete post",
+      "hide_success": "Post has been hidden from the public feed"
+    },
+    "spotlight": {
+      "aria_label": "Discovery mode",
+      "featured": "Featured",
+      "new": "New members",
+      "nearby": "Nearby",
+      "industry": "Same industry"
+    },
+    "pulse": {
+      "aria_label": "Community pulse",
+      "featured_posts": "featured posts",
+      "today": "today",
+      "new_members": "members",
+      "just_joined": "recently joined",
+      "live_sessions": "live sessions",
+      "upcoming": "upcoming"
+    }
+  },
+  "eventsNews": {
+    "title": "Events & News",
+    "subtitle": "Latest updates on programs and recommended content",
+    "announcement": {
+      "subtitle": "Updates on recruitment announcements from the ACTA community"
+    },
+    "search": {
+      "placeholder": "Search..."
+    },
+    "filter": {
+      "all": "All",
+      "news": "News",
+      "event": "Event"
+    },
+    "sort": {
+      "latest": "Latest",
+      "oldest": "Oldest",
+      "mostLikes": "Most liked",
+      "leastLikes": "Least liked",
+      "mostComments": "Most commented",
+      "leastComments": "Least commented",
+      "mostViews": "Most viewed",
+      "leastViews": "Least viewed",
+      "az": "Name A-Z",
+      "za": "Name Z-A",
+      "updatedLatest": "Latest updated",
+      "updatedOldest": "Oldest updated"
+    },
+    "items": "'{{count}}' items"
+  },
+  "documents": {
+    "title": "Knowledge Library",
+    "subtitle": "Updates of documents and information for the community.",
+    "search": {
+      "placeholder": "Search documents, authors, categories..."
+    },
+    "category": {
+      "placeholder": "Choose category",
+      "all": "All categories"
+    },
+    "sort": {
+      "label": "Sort by",
+      "newest": "Latest",
+      "oldest": "Oldest",
+      "mostViewed": "Most viewed",
+      "mostDownloaded": "Most downloaded"
+    },
+    "filters": {
+      "applied": "Applied filters:",
+      "search": "Search",
+      "category": "Category",
+      "clearAll": "Clear all"
+    },
+    "tabs": {
+      "all": "All",
+      "downloads": "Top downloads",
+      "latest": "Latest",
+      "views": "Top views",
+      "favorites": "Favorites"
+    },
+    "loading": "Loading documents...",
+    "results": {
+      "summary": "Showing '{{shown}}' of '{{total}}' documents"
+    },
+    "no_files": "No files available to download",
+    "download": {
+      "success": "Downloaded successfully!",
+      "error": "An error occurred while downloading. Please try again.",
+      "button": "Download"
+    },
+    "downloading": "Downloading...",
+    "view_detail": "View details",
+    "badge": {
+      "recentlyViewed": "Recently viewed",
+      "following": "Following",
+      "favorite": "Favorite"
+    },
+    "progress": "Progress",
+    "chapters": "chapters"
+  },
+  "stats": {
+    "highlighted": "Highlighted achievements",
+    "search": {
+      "placeholder": "Search name or referral code..."
+    },
+    "no_results": "No results found",
+    "no_data": "No data yet"
+  },
+  "features": {
+    "event_news": {
+      "title": "Events & News",
+      "desc": "Latest updates"
+    },
+    "documents": {
+      "title": "Knowledge Library",
+      "desc": "Professional documents"
+    },
+    "announcement": {
+      "title": "Recruitment",
+      "desc": "Job information"
+    },
+    "community": {
+      "title": "Community Moments",
+      "desc": "Connect and share"
+    },
+    "forum": {
+      "title": "Q&A Forum",
+      "desc": "Discuss and share knowledge"
+    }
+  },
+  "avatar": {
+    "view_profile": "View profile",
+    "logout": "Log out",
+    "manage": "Admin",
+    "navigating": "Redirecting...",
+    "role": {
+      "admin": "Administrator",
+      "user": "User",
+      "collaborator": "Collaborator"
+    },
+    "kyc": {
+      "complete": "Complete KYC",
+      "need_revision": "KYC needs revision",
+      "need_change": "KYC needs changes",
+      "processing": "KYC processing",
+      "verify_needed": "Verification required"
+    }
+  },
+  "actions": {
+    "load_more": "Load more posts"
+  },
+  "loading": {
+    "posts": "Loading posts...",
+    "more_posts": "Loading more posts..."
+  },
+  "ecosystem": {
+    "banner": {
+      "badge": "ACTA Ecosystem",
+      "title": "Explore ACTA ecosystem connected hubs",
+      "description": "Find restaurants, cafés, shopping centers, and hubs near you with exclusive offers for ACTA members.",
+      "primary_cta": "Explore Hubs Now",
+      "secondary": {
+        "map": "Hubs Map",
+        "offers": "Ecosystem Offers",
+        "nearby": "Near You"
+      }
+    }
+  },
+  "training": {
+    "card": {
+      "title": "Training Videos",
+      "watch_video": "Watch video",
+      "loading": "Loading training reward progress today…",
+      "daily_reward": "Today's reward",
+      "daily_completions": "Today's completions",
+      "capped_today": "Daily cap reached",
+      "remaining_money": "{amount} remaining until daily cap",
+      "remaining_completions": "{count} completions remaining until daily cap",
+      "earned_today": "You have earned {amount} training rewards today",
+      "care_paused": "Rewards paused for completed videos",
+      "care_reason": "Why?"
+    },
+    "playbackState": {
+      "playing": "Playing",
+      "paused": "Paused",
+      "ended": "Ended, watch again"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "unread_count": "{count} unread",
+    "total_count": "{count} notifications",
+    "mark_all_read": "Mark all as read",
+    "mark_all_seen": "Mark all as seen",
+    "mark_read": "Mark as read",
+    "unread": "Unread",
+    "loading": "Loading...",
+    "load_more": "Load more notifications",
+    "all_loaded": "All notifications loaded",
+    "processing": "Processing...",
+    "error_loading": "Failed to load notifications",
+    "retry": "Retry",
+    "filter": {
+      "all": "All {count}"
+    },
+    "domains": {
+      "social": "Social",
+      "shop": "Shop",
+      "income": "Income",
+      "admin": "Admin",
+      "system": "System"
+    },
+    "empty": {
+      "title": "No notifications",
+      "subtitle": "You will receive notifications here",
+      "filtered_title": "No notifications in this category",
+      "filtered_subtitle": "Select 'All' to view all notifications"
+    },
+    "sheet": {
+      "empty_title": "No notifications",
+      "empty_subtitle": "You will receive notifications here",
+      "view_all": "View all notifications"
+    }
+  },
+  "leaderboard": {
+    "title": "Leaderboard",
+    "subtitle": "By total accumulated points",
+    "updatedAt": "Updated at {time}",
+    "totalPoints": "Total Points",
+    "searchPlaceholder": "Search by name or code...",
+    "rank": "RANK {rank}",
+    "yourAchievement": "Your Achievement",
+    "unranked": "Unranked",
+    "viewFull": "View Full Leaderboard ({count})",
+    "error": "Unable to load leaderboard. Please try again later.",
+    "noResults": "No matching results",
+    "noData": "No data yet",
+    "tabs": {
+      "totalPoints": "Total Points",
+      "recognizedPosts": "Activity",
+      "revenuePreTax": "Sales",
+      "directReferrals": "Connections",
+      "likeCount": "Likes"
+    },
+    "units": {
+      "points": "points",
+      "posts": "posts",
+      "vnd": "VND",
+      "people": "people",
+      "times": "times"
+    },
+    "motivation": {
+      "youAreFirst": "You are currently #1! Keep maintaining your position.",
+      "unranked": "Start being active to get on the leaderboard!",
+      "pointsToNext": "{diff} {unit} to reach rank #{targetRank}"
+    },
+    "descriptions": {
+      "totalPoints": "By total accumulated points",
+      "recognizedPosts": "By number of recognized posts",
+      "revenuePreTax": "By total spending (excl. VAT)",
+      "directReferrals": "By number of KYC-verified referrals",
+      "likeCount": "By total likes sent"
+    },
+    "collapse": "Collapse leaderboard",
+    "you": "You",
+    "progress": {
+      "keepGoing": "Keep earning {unit} to improve your rank #{targetRank}"
+    }
+  },
+  "rewards": {
+    "title": "Rewards System",
+    "level": "Level",
+    "totalPoints": "Total Points",
+    "nextLevelProgress": "Progress to Next Level",
+    "loading": "Loading...",
+    "viewAchievements": "View Achievements",
+    "initializeSystem": "Initialize Rewards System",
+    "initializing": "Initializing...",
+    "retry": "Retry",
+    "error": "Unable to connect to rewards system",
+    "tryAgain": "Try Again",
+    "globalRank": "Global Rank #{rank}",
+    "retryArrow": "Retry →",
+    "viewAchievementsArrow": "View Achievements →"
+  },
+  "birthdays": {
+    "title": "Community Birthdays",
+    "tabs": {
+      "today": "Today",
+      "upcoming": "Next 7 Days"
+    },
+    "empty": {
+      "today": "No birthdays today.",
+      "upcoming": "No upcoming birthdays in the next {days} days."
+    },
+    "viewAll": "View All {count} People",
+    "collapse": "Collapse List",
+    "viewProfile": "View {name}'s Profile",
+    "simulatedTime": "Simulating time: {time}",
+    "birthdaysToday": "{count} birthdays today",
+    "birthdaysUpcoming": "{count} birthdays in the next 7 days",
+    "pagination": "Page {current}/{total} · {totalCount} members",
+    "runTest": "Run Test",
+    "viewAllShort": "View All ({count})",
+    "daysUntil": {
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "inDays": "In {days} days"
+    }
+  },
+  "feed": {
+    "tabs": {
+      "latest": "Latest",
+      "trending": "Trending",
+      "recommended": "Recommended",
+      "livestream": "Live"
+    }
+  },
+  "live": {
+    "comingSoon": {
+      "badge": "Coming soon",
+      "title": "Live streaming is coming soon",
+      "description": "ACTA is currently completing this feature and it will be available soon."
+    },
+    "loading": "Loading livestreams...",
+    "liveNow": "Live now",
+    "noLiveStreams": "No livestreams currently in progress",
+    "recentReplays": "Recent replays",
+    "noReplays": "No replays have been saved yet",
+    "endOfCatalog": "You have reached the end of the livestream catalog",
+    "endOfCatalogDescription": "Check back for upcoming broadcasts or return to the feed for the latest community moments."
+  }
+}

@@ -1,0 +1,337 @@
+// ===============================
+// Forum (Diễn đàn)
+// ===============================
+
+// Trạng thái duyệt topic
+enum ForumTopicStatus {
+  pending // Chờ admin duyệt
+  approved // Đã duyệt, hiển thị công khai
+  rejected // Bị từ chối
+  archived // Lưu trữ (không hiển thị trong list chính)
+}
+
+// 3 mục chính (key chuẩn hoá để dùng ổn định ở FE/seed)
+enum ForumCategoryKey {
+  qna // Hỏi đáp
+  documents // Tài liệu
+  shared_resources // Tài nguyên dùng chung
+}
+
+// Loại reaction cho forum
+enum ForumReactionType {
+  like
+  helpful
+  solved
+  insightful
+  thanks
+}
+
+// Nhóm chuyên mục (seed mặc định 3 mục theo yêu cầu)
+model ForumCategory {
+  id          String           @id @default(cuid())
+  key         ForumCategoryKey
+  name        String
+  description String?
+  icon        String? // Icon cho category
+  color       String? // Màu sắc cho category
+  order       Int              @default(0)
+  isActive    Boolean          @default(true)
+
+  // Statistics - Thống kê
+  topicCount     Int       @default(0) // Số lượng topic
+  commentCount   Int       @default(0) // Số lượng comment
+  lastTopicId    String?
+  lastTopicTitle String?
+  lastActivityAt DateTime?
+
+  topics ForumTopic[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@index([order, isActive])
+  @@map("forum_categories")
+}
+
+// Chủ đề/Topic dạng Q&A/Hướng dẫn…
+// Mặc định user tạo topic ở trạng thái `pending`, admin mới được duyệt.
+model ForumTopic {
+  id      String           @id @default(cuid())
+  title   String
+  slug    String           @unique
+  content String           @db.Text // Markdown/HTML đã sanitize ở service
+  excerpt String? // Tóm tắt ngắn gọn
+  status  ForumTopicStatus @default(pending)
+
+  // Phân loại
+  categoryId String
+  category   ForumCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  // Tác giả
+  authorId String
+  author   User   @relation("ForumTopicAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Duyệt bài
+  approvedById   String?
+  approvedBy     User?     @relation("ForumTopicApprovedBy", fields: [approvedById], references: [id])
+  approvedAt     DateTime?
+  rejectedReason String?
+
+  // Tiện ích hiển thị
+  pinned   Boolean @default(false)
+  locked   Boolean @default(false) // Khóa topic (không cho comment)
+  featured Boolean @default(false) // Topic nổi bật
+  solved   Boolean @default(false) // Đã giải quyết (cho Q&A)
+  views    Int     @default(0)
+  priority Int     @default(0) // Độ ưu tiên hiển thị
+
+  // Statistics - Thống kê
+  commentCount   Int       @default(0)
+  reactionCount  Int       @default(0)
+  lastCommentId  String?
+  lastActivityAt DateTime? // Thời gian hoạt động cuối cùng
+
+  // SEO
+  metaTitle       String?
+  metaDescription String?
+  keywords        String[] @default([])
+
+  // Media
+  images String[] @default([]) // Danh sách URL hình ảnh
+  videos String[] @default([]) // Danh sách URL video
+
+  // Tags
+  tags String[] @default([]) // Tags cho topic
+
+  comments          ForumComment[]
+  reactions         ForumTopicReaction[]
+  follows           ForumTopicFollow[]
+  reports           ForumReport[]        @relation("ForumTopicReports")
+  muxData           ForumMuxData[]       @relation("ForumTopicMuxData")
+  forumTopicReviews ForumTopicReview[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  editedAt  DateTime?
+
+  @@index([categoryId, status, createdAt])
+  @@index([categoryId, status, pinned, priority])
+  @@index([authorId, status])
+  @@index([status, featured])
+  @@index([slug])
+  @@index([solved]) // For Q&A filtering
+  @@index([featured, pinned, priority, lastActivityAt])
+  @@map("forum_topics")
+}
+
+// Bình luận theo luồng (có thể trả lời lồng nhau qua parentId)
+model ForumComment {
+  id       String  @id @default(cuid())
+  content  String  @db.Text
+  isEdited Boolean @default(false)
+
+  topicId String
+  topic   ForumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("ForumCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   ForumComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies  ForumComment[] @relation("CommentReplies")
+
+  // Features
+  isAnswer     Boolean @default(false) // Đáp án cho Q&A
+  isBestAnswer Boolean @default(false) // Đáp án tốt nhất
+  isPinned     Boolean @default(false) // Ghim comment
+
+  // Statistics
+  reactionCount Int       @default(0)
+  replyCount    Int       @default(0)
+  editedAt      DateTime?
+
+  // Media
+  images String[] @default([]) // Danh sách URL hình ảnh
+  videos String[] @default([]) // Danh sách URL video
+
+  muxData ForumMuxData[] @relation("ForumCommentMuxData")
+
+  reactions ForumCommentReaction[]
+  reports   ForumReport[]          @relation("ForumCommentReports")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([topicId, createdAt])
+  @@index([topicId, isAnswer])
+  @@index([topicId, isBestAnswer])
+  @@index([authorId])
+  @@index([parentId])
+  @@map("forum_comments")
+}
+
+// Reaction cho topic
+model ForumTopicReaction {
+  id String @id @default(cuid())
+
+  type ForumReactionType
+
+  topicId String
+  topic   ForumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("ForumTopicReactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([topicId, userId]) // Mỗi user chỉ có thể react 1 loại cho 1 topic
+  @@index([topicId])
+  @@index([userId])
+  @@map("forum_topic_reactions")
+}
+
+// Reaction cho comment
+model ForumCommentReaction {
+  id String @id @default(cuid())
+
+  type ForumReactionType
+
+  commentId String
+  comment   ForumComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("ForumCommentReactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([commentId, userId]) // Mỗi user chỉ có thể react 1 loại cho 1 comment
+  @@index([commentId])
+  @@index([userId])
+  @@map("forum_comment_reactions")
+}
+
+// Follow topic để nhận thông báo
+model ForumTopicFollow {
+  id String @id @default(cuid())
+
+  topicId String
+  topic   ForumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("ForumTopicFollows", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Notification settings
+  notifyOnComment Boolean @default(true)
+  notifyOnAnswer  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([topicId, userId])
+  @@index([topicId])
+  @@index([userId])
+  @@map("forum_topic_follows")
+}
+
+// Thống kê hoạt động của user trong forum
+model ForumUserStats {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation("ForumUserStats", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Topic statistics
+  topicsCreated  Int @default(0)
+  topicsApproved Int @default(0)
+  topicsRejected Int @default(0)
+  topicsSolved   Int @default(0) // Số topic đã được giải quyết
+
+  // Comment statistics
+  commentsCreated  Int @default(0)
+  bestAnswersGiven Int @default(0) // Số lần được chọn best answer
+  helpfulReactions Int @default(0) // Số reaction "helpful" nhận được
+  solvedReactions  Int @default(0) // Số reaction "solved" nhận được
+
+  // Engagement statistics
+  totalReactionsGiven    Int @default(0) // Tổng reaction đã cho
+  totalReactionsReceived Int @default(0) // Tổng reaction nhận được
+  totalFollows           Int @default(0) // Số topic đang follow
+
+  // Reputation score (tính toán dựa trên hoạt động)
+  reputationScore Int @default(0)
+
+  // Activity timestamps
+  lastTopicCreatedAt   DateTime?
+  lastCommentCreatedAt DateTime?
+  lastActivityAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([reputationScore])
+  @@map("forum_user_stats")
+}
+
+// Báo cáo vi phạm
+model ForumReport {
+  id String @id @default(cuid())
+
+  // Loại báo cáo
+  type   String // "spam", "inappropriate", "harassment", "off_topic", "other"
+  reason String // Lý do chi tiết
+
+  // Đối tượng báo cáo
+  topicId   String?
+  topic     ForumTopic?   @relation("ForumTopicReports", fields: [topicId], references: [id], onDelete: Cascade)
+  commentId String?
+  comment   ForumComment? @relation("ForumCommentReports", fields: [commentId], references: [id], onDelete: Cascade)
+
+  // Người báo cáo
+  reporterId String
+  reporter   User   @relation("ForumReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  // Xử lý báo cáo
+  status       String    @default("pending") // "pending", "reviewed", "resolved", "dismissed"
+  reviewedById String?
+  reviewedBy   User?     @relation("ForumReportReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  resolution   String? // Kết quả xử lý
+  notes        String? // Ghi chú từ moderator
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([reporterId])
+  @@index([topicId])
+  @@index([commentId])
+  @@map("forum_reports")
+}
+
+// ===============================
+// MUX DATA FOR FORUM TOPICS
+// ===============================
+
+model ForumMuxData {
+  id         String  @id @default(cuid())
+  assetId    String // Mux asset id
+  playbackId String? // Mux playback id (public)
+
+  topicId String?
+  topic   ForumTopic? @relation("ForumTopicMuxData", fields: [topicId], references: [id], onDelete: Cascade)
+
+  commentId String?
+  comment   ForumComment? @relation("ForumCommentMuxData", fields: [commentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([topicId])
+  @@map("forum_mux_data")
+}

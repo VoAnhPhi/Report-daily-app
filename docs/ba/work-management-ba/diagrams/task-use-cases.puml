@@ -1,0 +1,27 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+actor "Người tạo việc" as Creator
+actor "Người được giao" as Assignee
+actor "Người có quyền trên việc" as Participant
+
+rectangle "ACTA Social — Công việc" {
+  usecase "Tạo và giao việc" as Create
+  usecase "Nhận tham gia" as Accept
+  usecase "Cập nhật nội dung\nvà việc con" as Update
+  usecase "Bình luận" as Comment
+  usecase "Đổi trạng thái" as Status
+  usecase "Xóa / khôi phục" as Restore
+}
+
+Creator -- Create
+Creator -- Update
+Creator -- Status
+Creator -- Restore
+Assignee -- Accept
+Participant -- Update
+Participant -- Comment
+Participant -- Status
+@enduml

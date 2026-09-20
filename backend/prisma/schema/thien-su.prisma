@@ -1,0 +1,323 @@
+// ============================================================================
+// THIÊN SỨ — người đồng hành AI (thiensu.acta.vn, kho giao diện `acta-agents`)
+//
+// Giai đoạn 2: trò chuyện chữ trực tiếp, nhiều nhà cung cấp mô hình.
+// Quyết định nền: `acta-agents/docs/adr/0002-runtime-trong-acta-api.md` (runtime
+// sống ở đây) và `0003-han-muc-va-ranh-gioi-du-lieu.md` (hạn mức sửa nóng trong
+// acta-admin, ranh giới dữ liệu mặc định ĐÓNG).
+//
+// Mười bảng, ba nhóm:
+//   • danh tính   — ThienSu → ThienSuNhanCach (nhân cách CÓ PHIÊN BẢN)
+//   • trò chuyện  — ThienSuHoiThoai → ThienSuTinNhan
+//   • rào chắn    — ThienSuMoHinh (danh mục mô hình), ThienSuHanMuc (theo hạng),
+//                   ThienSuCauHinh (một hàng: ngân sách hệ thống + hệ số nấc),
+//                   ThienSuNhatKyCauHinh (chỉ-thêm), ThienSuLuotChan (bằng chứng
+//                   đã chặn, cho điểm cuối sức khoẻ)
+//
+// Soft FK (không @relation) cho mọi cột trỏ sang `users` — theo tiền lệ
+// `NhanConversation.createdById` và `ReviewGatingConfigAuditLog.changedById`,
+// để không phải thêm back-relation vào model User vốn đã rất dài.
+//
+// ⚠ Quy ước giá trị trần của module NÀY (HAN-MUC-VA-RAO-CHAN.md §5.4):
+//     `null` = KHÔNG TRẦN · `0` = CHẶN HẾT.
+//   NGƯỢC với Nhân viên Nhàn (`NHAN_TRAN_LUOT_NGAY = 0` là TẮT trần). Đọc một
+//   con số ở đây bằng quy ước của Nhàn là tưởng đang tắt trần trong khi thực ra
+//   đang chặn sạch một hạng người dùng.
+// ============================================================================
+
+/// Ai nói trong một tin nhắn.
+enum ThienSuVaiTro {
+  nguoi_dung // Người dùng gõ vào
+  thien_su // Thiên Sứ trả lời
+}
+
+/// Hạng người dùng để tra hạn mức. Thứ tự khai báo LÀ thứ tự quyền — mã so sánh
+/// "hạng tối thiểu" của mô hình dựa vào thứ tự này (`THIEN_SU_THU_HANG`).
+enum ThienSuHang {
+  thuong // đã đăng nhập ACTA
+  da_xac_minh // KYC đã duyệt
+  nhan_vien // có ít nhất một quyền quản trị còn hiệu lực
+  quan_tri // có `thien_su_quota.exempt` (super admin luôn có)
+}
+
+/// Nhà cung cấp mô hình. Mỗi giá trị ứng với đúng một bộ nối
+/// (`ThienSuNhaCungCap*Service`). Thêm hãng = thêm giá trị bằng
+/// `ALTER TYPE … ADD VALUE IF NOT EXISTS` + viết bộ nối.
+enum ThienSuNhaCungCap {
+  anthropic
+  openai
+}
+
+/// Bốn nấc của thanh kéo "Mức suy nghĩ" trên giao diện.
+enum ThienSuMucSuyNghi {
+  nhanh // Nhanh nhất
+  can_bang // Cân bằng
+  ky_luong // Kỹ lưỡng
+  sau // Sâu nhất
+}
+
+/// Danh tính một Thiên Sứ. Giai đoạn 2 chỉ có Cattleya (hàng gieo sẵn trong
+/// migration); giai đoạn 5 mới cho người dùng tự tạo (tối đa 3/tài khoản, đã
+/// tính Cattleya — ADR 0001).
+model ThienSu {
+  id            String    @id @default(uuid())
+  /// Mã ổn định cho URL và giao diện — `cattleya`.
+  maDinhDanh    String    @unique @db.VarChar(60)
+  ten           String    @db.VarChar(80)
+  tenDayDu      String    @db.VarChar(160)
+  anhDaiDienUrl String?   @db.Text
+  /// Thiên Sứ mặc định của hệ thống. Chỉ Cattleya mang `true`.
+  laMacDinh     Boolean   @default(false)
+  /// Soft FK → users.id. NULL = Thiên Sứ của hệ thống.
+  chuSoHuuId    String?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  nhanCach ThienSuNhanCach[]
+  hoiThoai ThienSuHoiThoai[]
+
+  @@index([chuSoHuuId, deletedAt])
+  @@map("thien_su")
+}
+
+/// Nhân cách CÓ PHIÊN BẢN — sửa nhân cách là THÊM một hàng, không ghi đè.
+///
+/// `noiDung` là JSON có cấu trúc (xưng hô, giọng điệu, điều luôn làm / không
+/// bao giờ làm…), KHÔNG phải lời nhắc thô. Bộ biên dịch ngữ cảnh ghép nó với
+/// khung an toàn cố định thành lời nhắc hệ thống — người dùng (giai đoạn 5)
+/// không bao giờ sửa thẳng lời nhắc hệ thống.
+model ThienSuNhanCach {
+  id        String   @id @default(uuid())
+  thienSuId String
+  phienBan  Int
+  noiDung   Json
+  ghiChu    String?  @db.Text
+  /// Soft FK → users.id. NULL = gieo từ migration.
+  taoBoiId  String?
+  createdAt DateTime @default(now())
+
+  thienSu ThienSu @relation(fields: [thienSuId], references: [id], onDelete: Cascade)
+
+  @@unique([thienSuId, phienBan])
+  @@map("thien_su_nhan_cach")
+}
+
+/// TRI THỨC NỀN về ACTA — dữ kiện cho MỌI Thiên Sứ đọc, CÓ PHIÊN BẢN.
+///
+/// Sửa là THÊM một hàng phiên bản mới, không ghi đè: mất nguồn gốc là mất khả
+/// năng trả lời "ai đổi, từ gì sang gì" (cùng lý lẽ `ThienSuNhanCach`).
+///
+/// ⚠ CỐ Ý KHÔNG có `thienSuId`. Tri thức và nhân cách có HAI chủ sở hữu và HAI
+/// nhịp thay đổi khác nhau: nhân cách là giọng (gần như không đổi, sẽ do người
+/// dùng tự khai ở giai đoạn 5), tri thức là chính sách ACTA (đổi mỗi lần ACTA
+/// ra chính sách mới). Gắn tri thức vào từng Thiên Sứ thì tới giai đoạn 5 mỗi
+/// Thiên Sứ tự chép một bản và chúng trôi dạt khỏi nhau ngay.
+///
+/// ⚠ Và đó cũng là lý lẽ BỘ ĐỆM: khối này đứng TRƯỚC nhân cách trong lời nhắc,
+/// nên nó là tiền tố CHUNG của mọi người dùng. Đặt sau nhân cách — thứ sắp
+/// thành của-riêng-từng-người — là mỗi người một tiền tố khác nhau ngay từ byte
+/// đầu, và khối ~5.800 token này không bao giờ được chia sẻ giữa các phiên.
+///
+/// `noiDung` là VĂN BẢN THÔ đưa thẳng vào lời nhắc, không phải JSON có cấu
+/// trúc như nhân cách — nó là tài liệu cho mô hình đọc, không phải dữ liệu cho
+/// mã xử lý.
+model ThienSuTriThuc {
+  id       String @id @default(uuid())
+  phienBan Int    @unique
+  noiDung  String @db.Text
+  ghiChu   String? @db.Text
+  /// Soft FK → users.id. NULL = gieo từ migration.
+  taoBoiId String?
+  /// Hàng phiên bản MỚI NHẤT mang mốc "tri thức cập nhật lúc nào" — cổng rà
+  /// soát 90 ngày đọc đúng cột này, không cần thêm cột `capNhatLuc` thứ hai.
+  createdAt DateTime @default(now())
+
+  @@map("thien_su_tri_thuc")
+}
+
+/// Một cuộc trò chuyện — một mục trong danh sách lịch sử.
+model ThienSuHoiThoai {
+  id             String    @id @default(uuid())
+  thienSuId      String
+  /// Soft FK → users.id. Chủ cuộc trò chuyện; MỌI truy vấn lọc theo cột này.
+  nguoiDungId    String
+  /// Sinh từ câu đầu tiên, người dùng đổi được. NULL khi chưa có lượt nào.
+  tieuDe         String?   @db.VarChar(200)
+  /// Mốc sắp xếp danh sách lịch sử. Bump ở mỗi lượt.
+  tinNhanCuoiLuc DateTime  @default(now())
+  /// Xoá mềm: người dùng "xoá" mà hệ thống vẫn giữ được sổ chi phí.
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  thienSu ThienSu          @relation(fields: [thienSuId], references: [id], onDelete: Restrict)
+  tinNhan ThienSuTinNhan[]
+
+  @@index([nguoiDungId, deletedAt, tinNhanCuoiLuc(sort: Desc)])
+  @@map("thien_su_hoi_thoai")
+}
+
+/// Một tin nhắn. Tin của Thiên Sứ mang đủ sổ sách của lượt sinh ra nó.
+///
+/// ⚠ `nguoiDungId` được PHI CHUẨN HOÁ lên đây (HAN-MUC §3.3): phép đếm trần
+/// ngày chạy ở MỖI lượt chat, nên nó phải là truy vấn một bảng có chỉ mục —
+/// không phải JOIN sang bảng hội thoại như `demLuotHomNay()` của Nhàn.
+model ThienSuTinNhan {
+  id               String             @id @default(uuid())
+  hoiThoaiId       String
+  nguoiDungId      String
+  vaiTro           ThienSuVaiTro
+  noiDung          String             @db.Text
+  /// Lựa chọn của người dùng lúc gửi: một `maMoHinh`, hoặc `tu-dong`.
+  moHinhYeuCau     String?            @db.VarChar(80)
+  /// Nấc thanh kéo lúc gửi. NULL khi mô hình đã chạy không có tham số suy nghĩ.
+  mucSuyNghi       ThienSuMucSuyNghi?
+  /// Hãng + mô hình THỰC SỰ đã trả lời (tự động có thể chuyển hãng khi lỗi).
+  nhaCungCap       ThienSuNhaCungCap?
+  moHinh           String?            @db.VarChar(80)
+  /// Giá trị tham số suy nghĩ ĐÃ GỬI cho hãng (`low`, `high`, …).
+  thamSoSuyNghi    String?            @db.VarChar(20)
+  /// Phiên bản nhân cách đã dùng — phép thử "đổi mô hình mà nhân cách không
+  /// đổi" cần biết hai lượt có cùng nhân cách hay không.
+  nhanCachPhienBan Int?
+  /// Token đầu vào KHÔNG qua bộ đệm. Hai cột đệm tách riêng vì giá chênh ~10×
+  /// (HAN-MUC §2.3 — thiếu sót của tiền lệ `NhanMessage`).
+  inputTokens      Int?
+  outputTokens     Int?
+  cacheReadTokens  Int?
+  cacheWriteTokens Int?
+  /// Phần của `outputTokens` dành cho suy nghĩ (đã nằm TRONG `outputTokens`).
+  reasoningTokens  Int?
+  latencyMs        Int?
+  /// CẬN TRÊN chi phí, USD. Không phải hoá đơn. Cầu dao hệ thống cộng cột này.
+  chiPhiUocTinhUSD Decimal?           @db.Decimal(12, 6)
+  /// Lượt quy đổi đã tính cho TIN NGƯỜI DÙNG — trần ngày cộng cột này.
+  /// NULL ở tin của Thiên Sứ.
+  luotQuyDoi       Int?
+  /// Vì sao lượt dừng: `xong`, `max_tokens`, `het_gio`, `nguoi_dung_dung`,
+  /// `tu_choi`, `loi`, `vong_lap`.
+  lyDoDung         String?            @db.VarChar(40)
+  loi              String?            @db.Text
+  createdAt        DateTime           @default(now())
+
+  hoiThoai ThienSuHoiThoai @relation(fields: [hoiThoaiId], references: [id], onDelete: Cascade)
+
+  @@index([hoiThoaiId, createdAt])
+  /// Trần ngày + trần 5 phút của một người.
+  @@index([nguoiDungId, vaiTro, createdAt])
+  /// Cầu dao hệ thống: cộng chi phí của mọi tin Thiên Sứ trong ngày.
+  @@index([vaiTro, createdAt])
+  @@map("thien_su_tin_nhan")
+}
+
+/// Danh mục mô hình — nguồn của ô chọn "Mô hình" trên giao diện.
+///
+/// Sống trong CSDL chứ không trong mã vì tên và giá mô hình đổi âm thầm
+/// (HUONG-DAN-API-KEY.md §9.3): sửa ở acta-admin, không cần triển khai.
+/// Mô hình của hãng chưa có khoá API trên máy chủ tự ẩn khỏi ô chọn.
+model ThienSuMoHinh {
+  /// Mã API gửi cho hãng — `claude-haiku-4-5`.
+  maMoHinh          String            @id @db.VarChar(80)
+  nhaCungCap        ThienSuNhaCungCap
+  tenHienThi        String            @db.VarChar(80)
+  moTaNgan          String?           @db.VarChar(200)
+  /// 1 = nhanh/rẻ · 2 = cân bằng · 3 = mạnh. Bộ định tuyến tự động chọn theo bậc.
+  bac               Int
+  /// USD cho MỖI TRIỆU token.
+  giaVaoMoiTrieu    Decimal           @db.Decimal(10, 4)
+  giaRaMoiTrieu     Decimal           @db.Decimal(10, 4)
+  /// NULL ⇒ tính như token vào thường (cận trên).
+  giaDocDemMoiTrieu Decimal?          @db.Decimal(10, 4)
+  giaGhiDemMoiTrieu Decimal?          @db.Decimal(10, 4)
+  /// Hệ số lượt quy đổi (≥ 1). Nhân với hệ số nấc ở `ThienSuCauHinh`.
+  heSoLuot          Int               @default(1)
+  /// Nấc → giá trị tham số suy nghĩ của hãng, vd
+  /// `{"nhanh":"low","can_bang":"medium","ky_luong":"high","sau":"max"}`.
+  /// NULL = mô hình không có tham số này ⇒ thanh kéo bị làm mờ khi chọn nó.
+  banDoSuyNghi      Json?
+  /// Hạng thấp nhất được CHỌN TAY mô hình này.
+  hangToiThieu      ThienSuHang       @default(thuong)
+  /// Bộ định tuyến "Tự động" có được dùng mô hình này không.
+  dungChoTuDong     Boolean           @default(true)
+  batTat            Boolean           @default(true)
+  thuTu             Int               @default(0)
+  updatedAt         DateTime          @updatedAt
+  /// Soft FK → users.id.
+  updatedById       String?
+
+  @@index([batTat, thuTu])
+  @@map("thien_su_mo_hinh")
+}
+
+/// Hạn mức theo HẠNG, sửa nóng trong acta-admin (ADR 0003). Đọc thẳng mỗi lượt,
+/// KHÔNG đệm trong RAM tiến trình (HAN-MUC §8.4).
+model ThienSuHanMuc {
+  hang         ThienSuHang @id
+  /// Lượt QUY ĐỔI mỗi ngày giờ VN. `null` = không trần · `0` = chặn hết.
+  luotMoiNgay  Int?
+  /// Số tin gửi trong 5 phút trượt. `null` = không trần.
+  luotMoi5Phut Int?
+  /// Số lượt chạy cùng lúc (khoá Redis, fail-OPEN — HAN-MUC §3.4).
+  luotDongThoi Int
+  /// Dành cho giai đoạn 4–5. Khai sẵn để migration đầu có đủ cột.
+  anhMoiNgay   Int?
+  ttsMoiNgay   Int?
+  updatedAt    DateTime    @updatedAt
+  updatedById  String?
+
+  @@map("thien_su_han_muc")
+}
+
+/// Cấu hình toàn module — MỘT hàng duy nhất (`id = 'singleton'`), gieo sẵn
+/// trong migration để đường đọc không bao giờ phải ghi.
+model ThienSuCauHinh {
+  id             String   @id @default("singleton")
+  /// Ngân sách toàn hệ thống theo NGÀY giờ VN (HAN-MUC §5.3). `null` = tắt.
+  canhBaoUSDNgay Decimal? @db.Decimal(10, 2)
+  cauDaoUSDNgay  Decimal? @db.Decimal(10, 2)
+  /// Hệ số lượt theo nấc suy nghĩ, vd `{"nhanh":1,"can_bang":1,"ky_luong":2,"sau":4}`.
+  heSoMucSuyNghi Json
+  updatedAt      DateTime @updatedAt
+  updatedById    String?
+
+  @@map("thien_su_cau_hinh")
+}
+
+/// Nhật ký CHỈ-THÊM mọi lần sửa hạn mức / mô hình / cấu hình. Ghi cả giá trị
+/// TRƯỚC: câu hỏi thật khi có sự cố là "trần bị hạ từ bao nhiêu xuống bao
+/// nhiêu" (HAN-MUC §8.5). Không FK cứng sang User — service tự join khi trả về.
+model ThienSuNhatKyCauHinh {
+  id          String   @id @default(uuid())
+  /// `han-muc:<hang>` · `mo-hinh:<maMoHinh>` · `cau-hinh`
+  doiTuong    String   @db.VarChar(120)
+  giaTriTruoc Json?
+  giaTriSau   Json
+  nguoiSuaId  String
+  ghiChu      String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([doiTuong, createdAt])
+  @@map("thien_su_nhat_ky_cau_hinh")
+}
+
+/// Bằng chứng ĐÃ CHẶN — nguồn của `soLanChan24h` ở điểm cuối sức khoẻ
+/// (HAN-MUC §9.2). "Không ai kêu" không phải bằng chứng rào chắn còn sống.
+///
+/// Chỉ ghi các lần chặn ở TẦNG SERVICE (ngày, 5 phút, đồng thời, cầu dao, không
+/// đọc được bộ đếm). Lần chặn của guard tần suất KHÔNG ghi xuống đây: guard ấy
+/// đứng trước mọi thứ để chống dội, ghi CSDL mỗi lần nó chặn là biến chính nó
+/// thành một bộ khuếch đại tải.
+model ThienSuLuotChan {
+  id          String   @id @default(uuid())
+  nguoiDungId String?
+  /// `ngay` · `nam_phut` · `dong_thoi` · `cau_dao` · `khong_doc_duoc` · `vong_lap` · `het_gio`
+  loai        String   @db.VarChar(30)
+  chiTiet     String?  @db.VarChar(300)
+  createdAt   DateTime @default(now())
+
+  @@index([loai, createdAt])
+  @@index([createdAt])
+  @@map("thien_su_luot_chan")
+}

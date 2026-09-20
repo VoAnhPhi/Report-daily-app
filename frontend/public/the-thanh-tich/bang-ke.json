@@ -1,0 +1,427 @@
+[
+  {
+    "khoa": "huyHieuElder",
+    "dich": "huy-hieu/elder.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 47,
+    "ghiChu": "Minh sứ trưởng lão"
+  },
+  {
+    "khoa": "huyHieuProfessional",
+    "dich": "huy-hieu/professional.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 46,
+    "ghiChu": "Cổ đông chuyên gia"
+  },
+  {
+    "khoa": "huyHieuDiamond",
+    "dich": "huy-hieu/diamond.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 49,
+    "ghiChu": "Thành viên kim cương"
+  },
+  {
+    "khoa": "huyHieuSharing",
+    "dich": "huy-hieu/sharing.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 47,
+    "ghiChu": "Cổ đông lan tỏa"
+  },
+  {
+    "khoa": "huyHieuStarter",
+    "dich": "huy-hieu/starter.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 40,
+    "ghiChu": "Minh sứ thường"
+  },
+  {
+    "khoa": "huyHieuActive",
+    "dich": "huy-hieu/active.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 44,
+    "ghiChu": "Cổ đông tích cực"
+  },
+  {
+    "khoa": "huyHieuLuminary",
+    "dich": "huy-hieu/luminary.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 45,
+    "ghiChu": "Minh sứ cấp cao"
+  },
+  {
+    "khoa": "huyHieuBusiness",
+    "dich": "huy-hieu/business.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 47,
+    "ghiChu": "Cổ đông doanh nghiệp"
+  },
+  {
+    "khoa": "huyHieuIlluminator",
+    "dich": "huy-hieu/illuminator.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 47,
+    "ghiChu": "Minh sứ chuyên nghiệp"
+  },
+  {
+    "khoa": "huyHieuThanhVienTichCuc",
+    "dich": "huy-hieu/thanh-vien-tich-cuc.png",
+    "rong": 288,
+    "cao": 288,
+    "tyLe": 1,
+    "kb": 45,
+    "ghiChu": "Thành viên tích cực (TVTC) — CHƯA có chỗ dùng"
+  },
+  {
+    "khoa": "ruyBangQuanTriVien",
+    "dich": "ruy-bang/quan-tri-vien.png",
+    "rong": 640,
+    "cao": 203,
+    "tyLe": 3.1527,
+    "kb": 55,
+    "ghiChu": "role = ADMIN"
+  },
+  {
+    "khoa": "ruyBangDieuHanhVien",
+    "dich": "ruy-bang/dieu-hanh-vien.png",
+    "rong": 640,
+    "cao": 202,
+    "tyLe": 3.1683,
+    "kb": 50,
+    "ghiChu": "isModerator"
+  },
+  {
+    "khoa": "ruyBangThanhVien",
+    "dich": "ruy-bang/thanh-vien.png",
+    "rong": 640,
+    "cao": 250,
+    "tyLe": 2.56,
+    "kb": 65,
+    "ghiChu": "mặc định"
+  },
+  {
+    "khoa": "oHoVaTen",
+    "dich": "khung/o-ho-va-ten.png",
+    "rong": 1000,
+    "cao": 225,
+    "tyLe": 4.4444,
+    "kb": 102,
+    "ghiChu": "Họ và tên",
+    "keChi": {
+      "keChiY": 0.7044,
+      "keChiX0": 0.127,
+      "keChiX1": 0.778
+    }
+  },
+  {
+    "khoa": "oMaNguoiDung",
+    "dich": "khung/o-ma-nguoi-dung.png",
+    "rong": 1000,
+    "cao": 201,
+    "tyLe": 4.9751,
+    "kb": 91,
+    "ghiChu": "Mã người dùng",
+    "keChi": {
+      "keChiY": 0.7413,
+      "keChiX0": 0.206,
+      "keChiX1": 0.714
+    }
+  },
+  {
+    "khoa": "oNgayGiaNhap",
+    "dich": "khung/o-ngay-gia-nhap.png",
+    "rong": 1000,
+    "cao": 213,
+    "tyLe": 4.6948,
+    "kb": 88,
+    "ghiChu": "Ngày gia nhập",
+    "keChi": {
+      "keChiY": 0.7394,
+      "keChiX0": 0.234,
+      "keChiX1": 0.713
+    }
+  },
+  {
+    "khoa": "thanhNgang",
+    "dich": "khung/thanh-ngang.png",
+    "rong": 1020,
+    "cao": 221,
+    "tyLe": 4.6154,
+    "kb": 91,
+    "ghiChu": "thanh tiêu đề mục"
+  },
+  {
+    "khoa": "khungThe",
+    "dich": "khung/the.png",
+    "rong": 720,
+    "cao": 364,
+    "tyLe": 1.978,
+    "kb": 109,
+    "ghiChu": "khung thẻ ngang"
+  },
+  {
+    "khoa": "khungAnhDaiDien",
+    "dich": "khung/anh-dai-dien.png",
+    "rong": 640,
+    "cao": 621,
+    "tyLe": 1.0306,
+    "kb": 120,
+    "ghiChu": "vòng vàng quanh ảnh đại diện — đã xoá nút máy ảnh",
+    "loTron": {
+      "tamX": 0.5,
+      "tamY": 0.5233,
+      "duongKinh": 0.6937
+    }
+  },
+  {
+    "khoa": "capX1",
+    "dich": "cap/x1.png",
+    "rong": 192,
+    "cao": 192,
+    "tyLe": 1,
+    "kb": 22,
+    "ghiChu": "dấu cấp x1"
+  },
+  {
+    "khoa": "capX2",
+    "dich": "cap/x2.png",
+    "rong": 192,
+    "cao": 200,
+    "tyLe": 0.96,
+    "kb": 24,
+    "ghiChu": "dấu cấp x2"
+  },
+  {
+    "khoa": "capX3",
+    "dich": "cap/x3.png",
+    "rong": 192,
+    "cao": 184,
+    "tyLe": 1.0435,
+    "kb": 23,
+    "ghiChu": "dấu cấp x3"
+  },
+  {
+    "khoa": "hang1",
+    "dich": "hang/hang-1.png",
+    "rong": 640,
+    "cao": 624,
+    "tyLe": 1.0256,
+    "kb": 210,
+    "ghiChu": "huy chương Hạng 1"
+  },
+  {
+    "khoa": "hang2",
+    "dich": "hang/hang-2.png",
+    "rong": 640,
+    "cao": 627,
+    "tyLe": 1.0207,
+    "kb": 197,
+    "ghiChu": "huy chương Hạng 2"
+  },
+  {
+    "khoa": "hang3",
+    "dich": "hang/hang-3.png",
+    "rong": 640,
+    "cao": 606,
+    "tyLe": 1.0561,
+    "kb": 200,
+    "ghiChu": "huy chương Hạng 3"
+  },
+  {
+    "khoa": "thanhNguyetQue",
+    "dich": "khung/thanh-nguyet-que.png",
+    "rong": 1000,
+    "cao": 195,
+    "tyLe": 5.1282,
+    "kb": 62,
+    "ghiChu": "thanh rỗng, hai đầu lá nguyệt quế"
+  },
+  {
+    "khoa": "thanhSao",
+    "dich": "khung/thanh-sao.png",
+    "rong": 1000,
+    "cao": 210,
+    "tyLe": 4.7619,
+    "kb": 81,
+    "ghiChu": "thanh rỗng, huy hiệu sao bên trái"
+  },
+  {
+    "khoa": "thanhActa",
+    "dich": "khung/thanh-acta.png",
+    "rong": 1000,
+    "cao": 317,
+    "tyLe": 3.1546,
+    "kb": 111,
+    "ghiChu": "thanh rỗng, huy chương ACTA bên trái"
+  },
+  {
+    "khoa": "khungSenNgang",
+    "dich": "khung/khoi-lon-ngang.png",
+    "rong": 1020,
+    "cao": 333,
+    "tyLe": 3.0631,
+    "kb": 152,
+    "ghiChu": "khung khối lớn ngang, hoa sen bốn góc"
+  },
+  {
+    "khoa": "khungTron",
+    "dich": "khung/khung-tron.png",
+    "rong": 640,
+    "cao": 693,
+    "tyLe": 0.9235,
+    "kb": 203,
+    "ghiChu": "khung tròn rỗng, vương miện sen + ruy băng dưới"
+  },
+  {
+    "khoa": "gocSen",
+    "dich": "trang-tri/goc-sen.png",
+    "rong": 512,
+    "cao": 519,
+    "tyLe": 0.9865,
+    "kb": 45,
+    "ghiChu": "góc trang trí sen + mây, dùng xoay 4 góc trang"
+  },
+  {
+    "khoa": "phanCachThanh",
+    "dich": "trang-tri/phan-cach-thanh.png",
+    "rong": 1400,
+    "cao": 144,
+    "tyLe": 9.7222,
+    "kb": 30,
+    "ghiChu": "đường phân cách, hai nhánh thanh thẳng + sen giữa"
+  },
+  {
+    "khoa": "phanCachNhon",
+    "dich": "trang-tri/phan-cach-nhon.png",
+    "rong": 1400,
+    "cao": 153,
+    "tyLe": 9.1503,
+    "kb": 26,
+    "ghiChu": "đường phân cách, hai nhánh vuốt nhọn + sen giữa"
+  },
+  {
+    "khoa": "topNamMuoi",
+    "dich": "top/top-50.png",
+    "rong": 640,
+    "cao": 570,
+    "tyLe": 1.1228,
+    "kb": 178,
+    "ghiChu": "khiên TOP 50% (đồng)"
+  },
+  {
+    "khoa": "topMuoi",
+    "dich": "top/top-10.png",
+    "rong": 640,
+    "cao": 568,
+    "tyLe": 1.1268,
+    "kb": 162,
+    "ghiChu": "khiên TOP 10% (bạc)"
+  },
+  {
+    "khoa": "topMot",
+    "dich": "top/top-1.png",
+    "rong": 640,
+    "cao": 563,
+    "tyLe": 1.1368,
+    "kb": 152,
+    "ghiChu": "khiên TOP 1% (vàng/đỏ)"
+  },
+  {
+    "khoa": "khungTheDoc",
+    "dich": "khung/the-doc.png",
+    "rong": 780,
+    "cao": 1186,
+    "tyLe": 0.6577,
+    "kb": 424,
+    "ghiChu": "nền thẻ DỌC trang 2–4 — viền vẽ bằng mã, xem chú thích"
+  },
+  {
+    "khoa": "khungLucGiac",
+    "dich": "khung/luc-giac.png",
+    "rong": 384,
+    "cao": 422,
+    "tyLe": 0.91,
+    "kb": 63,
+    "ghiChu": "ô lục giác rỗng — ô trống bộ sưu tập danh hiệu (giả định 96px)"
+  },
+  {
+    "khoa": "khungQr",
+    "dich": "khung/qr.png",
+    "rong": 384,
+    "cao": 371,
+    "tyLe": 1.035,
+    "kb": 73,
+    "ghiChu": "khung mã QR (giả định 96px) — ⚠ RUỘT ĐẶC màu kem, không trong suốt: mã QR phải vẽ ĐÈ, đừng dán ảnh QR nền trắng"
+  },
+  {
+    "khoa": "songSen",
+    "dich": "trang-tri/song-sen.png",
+    "rong": 1200,
+    "cao": 406,
+    "tyLe": 2.9557,
+    "kb": 186,
+    "ghiChu": "hoa văn sóng + sen, chân trang (giả định 528px — thiếu 1,64×)"
+  },
+  {
+    "khoa": "mocThoiGian",
+    "dich": "trang-tri/moc-thoi-gian.png",
+    "rong": 320,
+    "cao": 300,
+    "tyLe": 1.0667,
+    "kb": 40,
+    "ghiChu": "nút mốc thời gian (đặt ≥64px)"
+  },
+  {
+    "khoa": "phanCachManh",
+    "dich": "trang-tri/phan-cach-manh.png",
+    "rong": 1980,
+    "cao": 195,
+    "tyLe": 10.1538,
+    "kb": 49,
+    "ghiChu": "đường phân cách bản MẢNH nhất (10,1:1) — 1400/1970, thiếu 1,41×"
+  },
+  {
+    "khoa": "vongNguyetQue",
+    "dich": "trang-tri/vong-nguyet-que.png",
+    "rong": 384,
+    "cao": 346,
+    "tyLe": 1.1098,
+    "kb": 48,
+    "ghiChu": "vòng nguyệt quế"
+  },
+  {
+    "khoa": "tiaSang",
+    "dich": "trang-tri/tia-sang.png",
+    "rong": 512,
+    "cao": 484,
+    "tyLe": 1.0579,
+    "kb": 32,
+    "ghiChu": "chùm tia sáng (hiển thị 120px ⇒ cần 448px @300dpi)"
+  },
+  {
+    "khoa": "logoActa",
+    "dich": "logo-acta.png",
+    "rong": 256,
+    "cao": 258,
+    "tyLe": 0.9922,
+    "kb": 22,
+    "ghiChu": "logo ACTA mạ vàng"
+  }
+]

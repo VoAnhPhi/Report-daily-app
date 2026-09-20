@@ -1,0 +1,54 @@
+// BrandReview — cổng duyệt 2-admin cho các hành động thương hiệu rủi ro cao (D-03/D-04).
+// TRANSFER_BUSINESS (chuyển thương hiệu sang doanh nghiệp khác) và DELETE (xoá mềm)
+// KHÔNG ghi trực tiếp — chúng tạo một BrandReview ở trạng thái pending; admin thứ hai
+// duyệt mới chạy mutation thật trong $transaction (D-05 cascade cho transfer).
+// Tách submittedById ≠ reviewedById để tầng service chặn tự-duyệt (403) — mô phỏng
+// WarehouseReview (master skill §4/§5). Enum action trùng tên với BrandAuditAction.
+
+enum BrandReviewAction {
+  TRANSFER_BUSINESS
+  DELETE
+}
+
+enum BrandReviewStatus {
+  pending
+  approved
+  rejected
+}
+
+model BrandReview {
+  id String @id @default(cuid())
+
+  // Thương hiệu bị tác động
+  brandId String
+  brand   BusinessBrand @relation(fields: [brandId], references: [id])
+
+  // Loại hành động cần duyệt
+  action BrandReviewAction
+
+  // Payload duyệt — TRANSFER_BUSINESS: { targetBusinessId, reason? }; DELETE: { reason? } hoặc null.
+  // businessId KHÔNG bao giờ tin từ payload tại thời điểm thực thi (đọc lại server-side).
+  payload Json?
+
+  // Người gửi yêu cầu
+  submittedById String
+  submittedBy   User   @relation("BrandReviewSubmitter", fields: [submittedById], references: [id])
+
+  // Người duyệt (điền khi approve/reject) — phải khác submittedById (403 ở tầng service)
+  reviewedById String?
+  reviewedBy   User?   @relation("BrandReviewReviewer", fields: [reviewedById], references: [id])
+
+  // Trạng thái máy: pending → approved (chạy $transaction) | rejected (kèm lý do)
+  status BrandReviewStatus @default(pending)
+
+  submittedAt    DateTime  @default(now())
+  decidedAt      DateTime?
+  decisionReason String?   @db.Text
+
+  @@index([brandId])
+  @@index([status, submittedAt])
+  @@index([submittedById])
+  // Phase 34 D-10: a partial UNIQUE index `brand_reviews_one_pending_per_brand` ON ("brandId") WHERE status='pending'
+  // is maintained via raw SQL (migration 20260617000001) — Prisma cannot express WHERE-filtered uniques. Do NOT remove.
+  @@map("brand_reviews")
+}

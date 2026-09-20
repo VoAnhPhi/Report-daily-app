@@ -1,0 +1,24 @@
+/// Lượt xem trang chi tiết sản phẩm, gộp theo NGÀY LỊCH VIỆT NAM.
+///
+/// VÌ SAO TỒN TẠI: báo cáo "Sản phẩm được quan tâm nhất" phải lọc theo kỳ, mà không nguồn
+/// lượt xem nào sẵn có làm được việc đó — `products.viewCount` là bộ đếm trọn đời không có
+/// dấu thời gian, còn bucket Redis `pop:views:1d:*` chỉ sống 8 ngày và bay khi Redis restart.
+/// Đây là nguồn BỀN duy nhất cho số liệu lượt xem theo thời gian.
+///
+/// Không thay thế `products.viewCount` và bucket Redis: hai thứ đó đang nuôi `popularityScore`
+/// của tìm kiếm, có vòng đời riêng.
+///
+/// Dữ liệu KHÔNG backfill được — không có nguồn nào dựng lại được quá khứ. Vì vậy báo cáo
+/// phải luôn công bố `MIN(day)` để người đọc phân biệt "0 lượt xem" với "chưa thu thập".
+model ProductViewDaily {
+  /// Khoá lỏng tới products.id — cố ý không đặt quan hệ, để xoá sản phẩm không kéo theo
+  /// việc mất số liệu lịch sử của báo cáo.
+  productId String
+  /// Ngày lịch Việt Nam, kiểu DATE (không giờ) — tránh mọi lệch múi giờ khi so biên kỳ.
+  day       DateTime @db.Date
+  views     Int      @default(0)
+
+  @@id([productId, day])
+  @@index([day])
+  @@map("product_view_dailies")
+}

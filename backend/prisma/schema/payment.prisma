@@ -1,0 +1,276 @@
+// enums
+enum PaymentProvider {
+  pay2s
+}
+
+enum PaymentMethod {
+  cash
+  card
+  wallet
+  transfer
+  voucher
+  other
+}
+
+enum PaymentProcessingStatus {
+  created
+  pending
+  succeeded
+  failed
+  cancelled
+  refunded
+}
+
+enum TransactionType {
+  charge
+  refund
+  payout
+  adjustment
+}
+
+enum PayoutStatus {
+  pending
+  processing
+  paid
+  failed
+}
+
+// tables
+model Payment {
+  id   String @id @default(cuid())
+  code String @unique // Mã thanh toán
+
+  provider     PaymentProvider
+  method       PaymentMethod
+  providerRef  String? // VNPay: vnp_TxnRef / vnp_TransactionNo; Stripe: pi_...; VietQR: bank txn id
+  clientSecret String? // Stripe (if using PaymentIntents)
+  amount       Decimal                 @db.Decimal(15, 2)
+  currency     String                  @default("VND") // "VND" | "USD" etc
+  status       PaymentProcessingStatus @default(created)
+
+  // helpful timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  succeededAt DateTime?
+  failedAt    DateTime?
+  cancelledAt DateTime?
+  refundedAt  DateTime?
+  expiresAt   DateTime? // used everywhere in code
+
+  /// VietQR metadata (tối thiểu cần cho tạo/đối soát QR)
+  qrContent   String? // Nội dung CK dự kiến (memo), nên chứa order.code hoặc payment.code
+  qrExpiresAt DateTime? // Hạn hiệu lực QR / phiên thanh toán
+
+  // For VNPay redirect URL (optional convenience; can also live in requestMeta)
+  checkoutUrl String?
+
+  // VNPay & Stripe request/response raw blobs for audit
+  requestMeta  Json?
+  responseMeta Json?
+
+  // idempotency
+  idempotencyKey String? @unique
+  rawWebhook     Json?
+
+  // Relations
+  transactions PaymentTransaction[]
+  attempts     PaymentAttempt[] // <— optional: track each gateway attempt
+
+  orderPaymentId String?       @unique
+  orderPayment   OrderPayment? @relation(fields: [orderPaymentId], references: [id], onDelete: Cascade)
+
+  // Phí dịch vụ của một "Phiếu ghi nhận điểm" (điểm thưởng liên kết). Cùng khuôn cha
+  // tuỳ chọn với `orderPaymentId`/`invoicePaymentId`. `Restrict` chứ không `Cascade`:
+  // đây là bản ghi TIỀN, xoá phiếu không được phép kéo theo nó.
+  affiliatePointRequestId String?                        @unique
+  affiliatePointRequest   AffiliatePurchasePointRequest? @relation("AffiliatePointRequestServiceFee", fields: [affiliatePointRequestId], references: [id], onDelete: Restrict)
+
+  invoicePaymentId String?         @unique
+  invoicePayment   InvoicePayment? @relation(fields: [invoicePaymentId], references: [id])
+
+  @@unique([provider, providerRef])
+  @@index([status, createdAt])
+  @@index([provider, status])
+  @@index([status, expiresAt])
+  @@index([status, id])
+  @@index([providerRef])
+  @@index([orderPaymentId])
+  @@index([updatedAt])
+  @@map("payments")
+}
+
+model PaymentTransaction {
+  id        String  @id @default(cuid())
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  type        TransactionType
+  amount      Decimal         @db.Decimal(15, 2)
+  currency    String
+  providerRef String? // e.g., Stripe charge id, VNPay trans no.
+  meta        Json?
+
+  createdAt DateTime @default(now())
+
+  // INV-03 — PARTIAL UNIQUE (paymentId, type, providerRef) WHERE providerRef IS NOT NULL.
+  // Prisma's schema language cannot express a WHERE predicate on @@unique, so this
+  // partial-unique index is NOT declared here as a plain @@unique (a non-partial
+  // unique would collide on legacy rows where providerRef IS NULL). It lives in the
+  // raw-SQL migration 20260602000003 (operator-gated, applied after the dedupe
+  // backfill reports 0 remaining duplicates). It de-dupes idempotent provider
+  // (Pay2S) webhook retries — the webhook handler already swallows P2002 on the
+  // duplicate paymentTransaction.create.
+  @@index([paymentId])
+  @@index([paymentId, type, createdAt])
+  @@map("payment_transactions")
+}
+
+// Optional – per-attempt mirror of gateways (Stripe PaymentIntent attempt, VNPay create-url)
+// Helps debugging/SCA and multiple retries
+model PaymentAttempt {
+  id        String  @id @default(cuid())
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  providerRef  String? // e.g. Stripe pi_… or VNPay vnp_TxnRef
+  status       PaymentProcessingStatus
+  amount       Decimal                 @db.Decimal(15, 2)
+  currency     String
+  checkoutUrl  String? // VNPay pay URL (if applicable)
+  requestMeta  Json?
+  responseMeta Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([paymentId, status, createdAt])
+  @@map("payment_attempts")
+}
+
+// Optional – to credit F2/F1/F0 to in-app balance (cashback/payouts)
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Decimal  @default(0) @db.Decimal(15, 2)
+  currency  String // "VND"
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("wallets")
+}
+
+model Payout {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Decimal      @db.Decimal(15, 2)
+  currency  String
+  status    PayoutStatus @default(pending)
+  method    String? // "bank_transfer", "stripe_transfer", etc.
+  meta      Json?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([userId])
+  @@map("payouts")
+}
+
+// Nhật ký đối soát chuyển khoản ngân hàng
+model PaymentReconciliation {
+  id               String   @id @default(cuid())
+  bankShortCode    String
+  bankTxnId        String   @unique
+  accountNumber    String
+  amount           Decimal  @db.Decimal(15, 2)
+  currency         String
+  occurredAt       DateTime
+  description      String? // nội dung CK (memo)
+  matchedPaymentId String?
+  // matchedPayment   Payment? @relation(fields: [matchedPaymentId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([bankShortCode, occurredAt])
+  @@index([amount, occurredAt])
+}
+
+// ===== Webhook activity log + late payment reconciliation =====
+// Mục tiêu: ghi lại MỌI sự kiện webhook từ provider (Pay2S, ...) để admin
+// có thể truy vết trong tab "Lịch sử thanh toán" và phát hiện thanh toán
+// trùng / thanh toán muộn (orphan) sau khi đơn đã hủy.
+
+enum WebhookDirection {
+  incoming // từ provider gửi đến (IPN)
+  outgoing // ta gọi sang provider (cancel/void/refund)
+}
+
+enum WebhookEventType {
+  ipn_received // Đã nhận IPN từ provider
+  ipn_processed // IPN xử lý thành công
+  ipn_rejected // IPN bị từ chối (chữ ký sai, amount sai, ...)
+  void_attempted // Bắt đầu gọi cancel/void sang provider
+  void_succeeded
+  void_failed
+  late_payment_received // IPN báo paid nhưng đơn đã hủy (orphan)
+  duplicate_payment // IPN trùng với payment đã succeeded
+}
+
+enum WebhookProcessingResult {
+  success
+  failed
+  orphaned
+  duplicate
+  rejected
+}
+
+model PaymentWebhookLog {
+  id               String                   @id @default(cuid())
+  orderCode        String?
+  paymentId        String?
+  provider         PaymentProvider
+  direction        WebhookDirection         @default(incoming)
+  eventType        WebhookEventType
+  payload          Json
+  signatureValid   Boolean?
+  processingResult WebhookProcessingResult?
+  errorMessage     String?
+  transactionId    String?
+  amount           Decimal?                 @db.Decimal(15, 2)
+  createdAt        DateTime                 @default(now())
+
+  @@index([orderCode, createdAt])
+  @@index([provider, eventType, createdAt])
+  @@index([processingResult, createdAt])
+  @@index([transactionId])
+  @@map("payment_webhook_logs")
+}
+
+enum LatePaymentStatus {
+  pending_review // Chờ kế toán xử lý
+  refunded // Đã hoàn tiền cho khách
+  completed // Admin đã xác nhận hoàn tất đơn (khách đã nhận hàng)
+  order_reopened // Admin mở lại đơn đã hủy → chuyển vào quy trình xử lý đơn từ đầu (confirmed)
+  written_off // Ghi giảm thủ công, không xử lý tiếp
+}
+
+model LatePaymentReceived {
+  id              String            @id @default(cuid())
+  orderCode       String
+  amount          Decimal           @db.Decimal(15, 2)
+  currency        String            @default("VND")
+  provider        PaymentProvider
+  transactionId   String?
+  payload         Json
+  status          LatePaymentStatus @default(pending_review)
+  receivedAt      DateTime          @default(now())
+  resolvedAt      DateTime?
+  resolvedById    String?
+  resolutionNotes String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([status, receivedAt])
+  @@index([orderCode])
+  @@index([transactionId])
+  @@map("late_payments_received")
+}

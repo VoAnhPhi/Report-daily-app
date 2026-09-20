@@ -1,0 +1,44 @@
+// Ngày trong tuần
+enum DayOfWeek {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+// Giờ hoạt động của điểm cầu (kho) theo từng ngày.
+// MỘT NGÀY CÓ THỂ CÓ NHIỀU CA — VD điểm cầu mở 07:00–11:30 rồi 13:30–20:00.
+// Mỗi ca là MỘT bản ghi riêng, phân biệt bằng `sortOrder`.
+//
+// ⚠ Trước 07/09/2026 bảng này là bảng giờ của "địa điểm kinh doanh" và neo vào
+// thực thể đó. Sau khi gộp địa điểm vào kho, nó neo thẳng `Warehouse`:
+// điểm trên bản đồ Thổ địa chỉ còn MỘT loại nên không còn cầu nối nào để đi qua.
+model WarehouseHours {
+  id String @id @default(cuid())
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  dayOfWeek      DayOfWeek // Thứ trong tuần
+  openTime       String? // Giờ mở cửa — format "HH:MM" (VD: "08:00"). null nếu isClosedAllDay = true
+  closeTime      String? // Giờ đóng cửa — format "HH:MM" (VD: "22:00")
+  isClosedAllDay Boolean   @default(false) // Đóng cửa cả ngày hôm đó
+  note           String? // Ghi chú thêm (VD: "Chỉ mở buổi sáng cuối tuần")
+
+  // Thứ tự ca trong ngày: 0 = ca đầu, 1 = ca thứ hai, ...
+  // `isClosedAllDay = true` LUÔN được biểu diễn bằng ĐÚNG MỘT bản ghi sortOrder = 0,
+  // openTime/closeTime đều null. API từ chối payload trộn "đóng cả ngày" với các ca.
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Mỗi điểm cầu chỉ có 1 bản ghi cho mỗi (ngày trong tuần, thứ tự ca)
+  @@unique([warehouseId, dayOfWeek, sortOrder])
+  @@index([warehouseId])
+  @@index([warehouseId, dayOfWeek])
+  @@map("warehouse_hours")
+}
