@@ -8,6 +8,7 @@ import { ThemeProvider as NextThemesProvider } from 'next-themes';
 import { AuthProvider } from '@/contexts/auth-context';
 import { FestiveThemeProvider } from '@/components/providers/festive-theme-context';
 import { LanguageProvider } from '@/components/sites/home/common/language-context';
+import { UserProfileModalProvider } from '@/hooks/use-user-profile-modal';
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -29,7 +30,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
           <AuthProvider>
             <NextThemesProvider attribute='class' defaultTheme='system' enableSystem>
               <FestiveThemeProvider>
-                <LanguageProvider>{children}</LanguageProvider>
+                <UserProfileModalProvider>
+                  <LanguageProvider>{children}</LanguageProvider>
+                </UserProfileModalProvider>
               </FestiveThemeProvider>
             </NextThemesProvider>
           </AuthProvider>
