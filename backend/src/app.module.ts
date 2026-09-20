@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ClsModule } from 'nestjs-cls';
@@ -12,6 +13,7 @@ import { CacheConfigService } from 'src/common/services/cache-config.service';
 import { BusinessFormsModule } from 'src/business-forms/business-forms.module';
 import { DailyReportsModule } from 'src/daily-reports/daily-reports.module';
 import { FeatureAuthModule } from 'src/auth/feature-auth.module';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { SimpleAuthModule } from 'src/auth/simple-auth.module';
 import { MailModule } from 'src/mail/mail.module';
 import { NotificationModule } from 'src/notifications/notification.module';
@@ -55,6 +57,12 @@ function redisConnection(config: ConfigService) {
     ReviewGatingConfigModule,
     BusinessFormsModule,
     DailyReportsModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
   ],
 })
 export class AppModule {}
